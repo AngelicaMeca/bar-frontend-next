@@ -1,14 +1,15 @@
 "use client";
 
-import { ArrowLeft, Ban, ChefHat, CheckCircle2, Clock, MessageSquareText, Minus, Pencil, Plus, Send, ShoppingBasket, Trash2, Users, Wallet } from "lucide-react";
+import { ArrowLeft, Ban, ChefHat, CheckCircle2, Clock, Hourglass, MessageSquareText, Minus, Pencil, Plus, Send, ShoppingBasket, Trash2, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useAction, useQuery } from "@/components/live";
+import { ChargeModal } from "@/components/charge-modal";
 import { Modal, useConfirm } from "@/components/modal";
 import { useSession } from "@/components/session";
 import { Badge, Button, Card, cn, ErrorState, Field, IconButton, Input, Loading, NumberInput, SearchInput, Select } from "@/components/ui";
-import { activeItems, batchSubtotal, orderTotal } from "@/lib/calc";
+import { activeItems, batchSubtotal, delayedBatches, orderTotal } from "@/lib/calc";
 import { fmtMoney, fmtTime } from "@/lib/format";
 import { BATCH_STATUS, ORDER_STATUS } from "@/lib/labels";
 import { searchItems } from "@/lib/search";
@@ -24,6 +25,7 @@ export default function OrderPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [editing, setEditing] = useState<{ item: OrderItem; batch: Batch } | null>(null);
   const [guestsOpen, setGuestsOpen] = useState(false);
+  const [charging, setCharging] = useState(false);
 
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;
@@ -103,12 +105,12 @@ export default function OrderPage() {
               Anular
             </Button>
           )}
-          {order.status === "listo" && can("caja.operar") && (
-            <Button variant="success" icon={<Wallet className="size-4" />} onClick={() => router.push(`/caja?pedido=${order.id}`)}>
-              Cobrar
+          {order.status === "listo" && can("cobros.realizar") && (
+            <Button variant="success" icon={<Wallet className="size-4" />} onClick={() => setCharging(true)}>
+              Cobrar y liberar mesa
             </Button>
           )}
-          {order.saleId && can(["caja.operar", "reportes.ver"]) && (
+          {order.saleId && can(["caja.operar", "cobros.realizar", "reportes.ver"]) && (
             <Link href={`/caja/comprobante/${order.saleId}`} className="inline-flex h-10 items-center rounded-xl border border-ink-200 bg-white px-4 text-sm font-semibold text-ink-800 hover:bg-ink-50">
               Ver comprobante
             </Link>
@@ -116,14 +118,29 @@ export default function OrderPage() {
         </div>
       </div>
 
-      {order.status === "listo" && (
-        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
-          Todas las tandas están listas. La mesa se libera al confirmar el cobro en caja.
+      {delayedBatches(order).length > 0 && (
+        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <Hourglass className="mt-0.5 size-5 shrink-0 text-amber-600" />
+          <div>
+            <p className="font-semibold">Cocina informó demora</p>
+            {delayedBatches(order).map((b) => (
+              <p key={b.id}>
+                Tanda {b.number} ({BATCH_KINDS[b.kind]}): {b.delay!.reason}
+                {b.delay!.minutes ? ` · +${b.delay!.minutes} min` : ""} — {fmtTime(b.delay!.at)}
+              </p>
+            ))}
+          </div>
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
+      {order.status === "listo" && (
+        <div className="mb-5 flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
+          Todas las tandas están listas. La mesa se libera al confirmar el cobro.
+        </div>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[1fr_380px] [&>*]:min-w-0">
         <div className="space-y-4">
           {/* Tanda en borrador */}
           {canOperate &&
@@ -240,10 +257,17 @@ export default function OrderPage() {
                     </p>
                   </div>
                 </div>
-                <Badge tone={BATCH_STATUS[b.status].tone} dot>
-                  {b.status === "pendiente" ? <ChefHat className="size-3" /> : null}
-                  {BATCH_STATUS[b.status].label}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {b.status === "pendiente" && b.delay && (
+                    <Badge tone="warning">
+                      <Hourglass className="size-3" /> Demorada{b.delay.minutes ? ` +${b.delay.minutes}′` : ""}
+                    </Badge>
+                  )}
+                  <Badge tone={BATCH_STATUS[b.status].tone} dot>
+                    {b.status === "pendiente" ? <ChefHat className="size-3" /> : null}
+                    {BATCH_STATUS[b.status].label}
+                  </Badge>
+                </div>
               </div>
               <ul className="divide-y divide-ink-100 px-5">
                 {b.items.map((i) => (
@@ -315,6 +339,7 @@ export default function OrderPage() {
 
       {pickerOpen && draft && <ProductPicker orderId={order.id} batchId={draft.id} onClose={() => setPickerOpen(false)} />}
       {editing && <EditItemModal orderId={order.id} {...editing} onClose={() => setEditing(null)} />}
+      {charging && <ChargeModal orderId={order.id} onClose={() => setCharging(false)} />}
       {guestsOpen && <GuestsModal orderId={order.id} guests={order.guests} onClose={() => setGuestsOpen(false)} />}
     </div>
   );

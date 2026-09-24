@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { CashShift, Sale, SaleLine } from "@/lib/types";
-import { activeItems, saleTotals } from "@/lib/calc";
+import { activeItems, delayedBatches, saleTotals } from "@/lib/calc";
 import { fmtMoney, round2 } from "@/lib/format";
 import { assert, audit, type Ctx, fullName, getConfig, MANAGERS, must, notify, nowIso, uid } from "../core";
 
@@ -155,6 +155,7 @@ export function chargeableOrders(ctx: Ctx) {
         waiterName: users.get(o.waiterId) ?? "—",
         subtotal,
         deposit: r?.deposit?.status === "cobrada" ? r.deposit.amount : 0,
+        delayed: delayedBatches(o).length,
       };
     })
     .sort((a, b) => (a.status === b.status ? a.openedAt.localeCompare(b.openedAt) : a.status === "listo" ? -1 : 1));
@@ -172,7 +173,7 @@ export const chargeSchema = z.object({
 /** Cobro con medios de pago combinados, descuentos y seña (RF-CAJ-03/04/05/06, RF-RES-01.2). */
 export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
   return ctx.store.tx(() => {
-    const shift = must(currentShift(ctx), "Debe abrir la caja antes de cobrar");
+    const shift = must(currentShift(ctx), "No hay un turno de caja abierto. Pedile al encargado que abra la caja para poder cobrar.");
     const o = must(ctx.store.get("orders", input.orderId), "Pedido inexistente");
     assert(o.status !== "cobrado", "El pedido ya fue cobrado");
     assert(o.status === "listo", "El pedido todavía no está listo: hay tandas pendientes en cocina o sin enviar");

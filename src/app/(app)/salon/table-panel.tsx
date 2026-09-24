@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowRight, CalendarClock, ChefHat, History, Split, UserRoundCog, Users } from "lucide-react";
+import { ArrowRight, CalendarClock, ChefHat, DoorOpen, History, Hourglass, Split, UserRoundCog, Users, Wallet } from "lucide-react";
+import { ChargeModal } from "@/components/charge-modal";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAction, useQuery } from "@/components/live";
@@ -31,6 +32,7 @@ export function TablePanel({ table, floor, onClose }: { table: FloorTable; floor
   const [guests, setGuests] = useState<number | "">(Math.min(2, capacity));
   const [waiterId, setWaiterId] = useState(isWaiter ? user.id : "");
   const [newWaiter, setNewWaiter] = useState("");
+  const [charging, setCharging] = useState(false);
 
   const title = members.map((m) => m.code).join(" + ");
 
@@ -46,8 +48,9 @@ export function TablePanel({ table, floor, onClose }: { table: FloorTable; floor
   };
 
   return (
+    <>
     <Modal
-      open
+      open={!charging}
       onClose={onClose}
       size="md"
       title={
@@ -88,9 +91,52 @@ export function TablePanel({ table, floor, onClose }: { table: FloorTable; floor
               {order.ready > 0 && <Badge tone="success">{order.ready} tanda(s) lista(s)</Badge>}
               {order.draftItems > 0 && <Badge tone="neutral">{order.draftItems} ítem(s) sin enviar</Badge>}
             </div>
-            <Button className="mt-4 w-full" size="lg" icon={<ArrowRight className="size-4" />} onClick={() => router.push(`/pedidos/${order.id}`)}>
-              Ver / cargar pedido
-            </Button>
+            {order.delays.map((d) => (
+              <div key={d.batchNumber} className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <Hourglass className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  <b>Tanda {d.batchNumber} demorada:</b> {d.reason}
+                  {d.minutes ? ` · +${d.minutes} min` : ""}
+                  <span className="block text-xs opacity-75">
+                    Informada por cocina a las {fmtTime(d.at)}
+                  </span>
+                </span>
+              </div>
+            ))}
+            <div className="mt-4 space-y-2">
+              {can("cobros.realizar") && order.status === "listo" && (
+                <Button className="w-full" size="lg" variant="success" icon={<Wallet className="size-4" />} onClick={() => setCharging(true)}>
+                  Cobrar y liberar mesa
+                </Button>
+              )}
+              {can("cobros.realizar") && order.status !== "listo" && order.pending + order.ready > 0 && (
+                <p className="rounded-xl bg-ink-100 px-3 py-2 text-xs text-ink-600">
+                  Para cobrar y liberar la mesa, todas las tandas tienen que estar listas{order.draftItems > 0 ? " y no puede haber productos sin enviar" : ""}.
+                </p>
+              )}
+              {can("pedidos.operar") && order.pending + order.ready === 0 && (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  variant="outline"
+                  icon={<DoorOpen className="size-4" />}
+                  loading={pending === "orders.cancel"}
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: `Liberar mesa ${title}`,
+                      message: "No hay consumos enviados a cocina: se anula el pedido y la mesa queda libre.",
+                      confirmLabel: "Liberar mesa",
+                    });
+                    if (ok && (await run("orders.cancel", { orderId: order.id, reason: "Los clientes se retiraron sin consumir" }, { success: `Mesa ${title} liberada` }))) onClose();
+                  }}
+                >
+                  Liberar mesa (se fueron sin consumir)
+                </Button>
+              )}
+              <Button className="w-full" size="lg" variant={order.status === "listo" && can("cobros.realizar") ? "secondary" : "primary"} icon={<ArrowRight className="size-4" />} onClick={() => router.push(`/pedidos/${order.id}`)}>
+                Ver / cargar pedido
+              </Button>
+            </div>
           </div>
         )}
 
@@ -231,5 +277,7 @@ export function TablePanel({ table, floor, onClose }: { table: FloorTable; floor
         )}
       </div>
     </Modal>
+    {charging && order && <ChargeModal orderId={order.id} onClose={() => setCharging(false)} />}
+    </>
   );
 }

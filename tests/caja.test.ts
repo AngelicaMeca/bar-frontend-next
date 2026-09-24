@@ -26,7 +26,7 @@ describe("Caja", () => {
     const env = setup();
     const { ctx, users, t1, store } = env;
     const { o, bid } = readyOrder(env, t1.id);
-    expect(() => cash.charge(ctx(users.caja), { orderId: o.id, discount: null, payments: [{ methodId: "efectivo", amount: 30000 }] })).toThrow(/abrir la caja/);
+    expect(() => cash.charge(ctx(users.caja), { orderId: o.id, discount: null, payments: [{ methodId: "efectivo", amount: 30000 }] })).toThrow(/turno de caja/);
     cash.openShift(ctx(users.caja), { name: "Noche", openingAmount: 10000 });
     expect(() => cash.charge(ctx(users.caja), { orderId: o.id, discount: null, payments: [{ methodId: "efectivo", amount: 30000 }] })).toThrow(/no está listo/);
     kitchen.markBatchReady(ctx(users.cocina), { orderId: o.id, batchId: bid });
@@ -46,6 +46,23 @@ describe("Caja", () => {
     expect(store.get("tables", t1.id)!.status).toBe("libre");
     expect(store.get("orders", o.id)!.status).toBe("cobrado");
     expect(store.find("audit", (a) => a.action === "Cobro")).toHaveLength(1);
+  });
+
+  it("el mozo cobra en la mesa: la mesa se libera y la venta entra en el arqueo del turno", () => {
+    const env = setup();
+    const { ctx, users, t1, store } = env;
+    const { o, bid } = readyOrder(env, t1.id);
+    kitchen.markBatchReady(ctx(users.cocina), { orderId: o.id, batchId: bid });
+    // Sin turno de caja abierto no se puede cobrar
+    expect(() => cash.charge(ctx(users.mozo), { orderId: o.id, discount: null, payments: [{ methodId: "efectivo", amount: 24000 }] })).toThrow(/turno de caja/);
+
+    cash.openShift(ctx(users.caja), { name: "Noche", openingAmount: 0 });
+    const sale = cash.charge(ctx(users.mozo), { orderId: o.id, discount: null, payments: [{ methodId: "efectivo", amount: 30000 }] });
+    expect(sale.userId).toBe(users.mozo.id);
+    expect(sale.change).toBe(6000);
+    expect(store.get("tables", t1.id)!.status).toBe("libre");
+    const summary = cash.shiftSummary(ctx(users.caja), cash.currentShift(ctx())!.id);
+    expect(summary.expected.efectivo).toBe(24000);
   });
 
   it("rechaza pagos insuficientes o vuelto sobre medios no efectivo", () => {

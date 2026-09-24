@@ -9,6 +9,7 @@ export const PERMISSIONS = [
   "pedidos.operar",
   "cocina.operar",
   "caja.operar",
+  "cobros.realizar",
   "stock.ver",
   "stock.gestionar",
   "proveedores.gestionar",
@@ -26,9 +27,9 @@ export type Permission = (typeof PERMISSIONS)[number];
 const ALL = [...PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
-  MOZO: ["mesas.ver", "mesas.operar", "pedidos.ver", "pedidos.operar", "reservas.ver", "stock.ver"],
+  MOZO: ["mesas.ver", "mesas.operar", "pedidos.ver", "pedidos.operar", "cobros.realizar", "reservas.ver", "stock.ver"],
   COCINA: ["cocina.operar", "pedidos.ver", "stock.ver"],
-  CAJA: ["mesas.ver", "pedidos.ver", "caja.operar", "reservas.ver", "reservas.gestionar"],
+  CAJA: ["mesas.ver", "pedidos.ver", "caja.operar", "cobros.realizar", "reservas.ver", "reservas.gestionar"],
   SUPERVISOR: [
     "dashboard.ver",
     "mesas.ver",
@@ -38,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "pedidos.operar",
     "cocina.operar",
     "caja.operar",
+    "cobros.realizar",
     "stock.ver",
     "stock.gestionar",
     "proveedores.gestionar",

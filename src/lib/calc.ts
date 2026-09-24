@@ -14,7 +14,10 @@ export const orderTotal = (o: Order) => round2(o.batches.reduce((s, b) => s + ba
 /** Tandas enviadas a cocina que tienen al menos un ítem activo. */
 export const sentBatches = (o: Order) => o.batches.filter((b) => b.status !== "borrador" && activeItems(b).length > 0);
 
-export const draftBatch = (o: Order) => o.batches.find((b) => b.status === "borrador");
+/** Tandas pendientes en cocina marcadas con demora (se dejan de contar al quedar listas). */
+export const delayedBatches = (o: Order) => o.batches.filter((b) => b.status === "pendiente" && !!b.delay && activeItems(b).length > 0);
+
+export const draftBatch =(o: Order) => o.batches.find((b) => b.status === "borrador");
 
 /** El pedido está listo cuando todas sus tandas enviadas están listas y no hay borradores con ítems (RF-PED-11). */
 export function isOrderReady(o: Order) {

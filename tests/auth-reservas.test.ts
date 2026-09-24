@@ -32,6 +32,8 @@ describe("Autenticación y permisos", () => {
   it("RBAC: cada rol accede sólo a lo suyo", () => {
     expect(can(["MOZO"], "pedidos.operar")).toBe(true);
     expect(can(["MOZO"], "caja.operar")).toBe(false);
+    expect(can(["MOZO"], "cobros.realizar")).toBe(true); // el mozo cobra en la mesa
+    expect(can(["COCINA"], "cobros.realizar")).toBe(false);
     expect(can(["COCINA"], "cocina.operar")).toBe(true);
     expect(can(["CAJA"], "usuarios.gestionar")).toBe(false);
     expect(can(["MOZO", "CAJA"], "caja.operar")).toBe(true);

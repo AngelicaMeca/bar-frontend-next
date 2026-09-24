@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardList } from "lucide-react";
+import { ClipboardList, Hourglass } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@/components/live";
@@ -97,6 +97,11 @@ export default function PedidosPage() {
                     <td className="text-xs">
                       {o.batches.filter((b) => b.status !== "borrador").length} enviadas
                       {o.pendingBatches > 0 && <span className="ml-1 font-semibold text-amber-600">· {o.pendingBatches} en cocina</span>}
+                      {o.delayedBatches > 0 && (
+                        <Badge tone="warning" className="ml-1.5">
+                          <Hourglass className="size-3" /> Demora
+                        </Badge>
+                      )}
                     </td>
                     <td className="whitespace-nowrap">{fmtDateTime(o.openedAt)}</td>
                     <td className="whitespace-nowrap">{o.closedAt ? fmtDuration(minutesBetween(o.openedAt, o.closedAt)) : "—"}</td>

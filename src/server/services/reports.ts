@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Sale } from "@/lib/types";
 import { BATCH_KINDS } from "@/lib/types";
-import { activeItems } from "@/lib/calc";
+import { activeItems, delayedBatches } from "@/lib/calc";
 import { addDays, dayEnd, dayKey, dayStart, minutesBetween, round2, weekStart } from "@/lib/format";
 import { type Ctx, fullName, getConfig } from "../core";
 
@@ -319,6 +319,7 @@ export function dashboard(ctx: Ctx) {
     openOrders: openOrders.length,
     readyOrders: openOrders.filter((o) => o.status === "listo").length,
     pendingBatches,
+    delayedBatches: openOrders.reduce((a, o) => a + delayedBatches(o).length, 0),
     kitchenAvgToday: kToday.overall.avg,
     kitchenAvgWeek: k7.overall.avg,
     kitchenDelayMinutes: cfg.kitchenDelayMinutes,

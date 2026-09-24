@@ -1,6 +1,6 @@
 "use client";
 
-import { ChefHat, CheckCircle2, Clock, Hand, LayoutGrid, List, Move, Pencil, Split, Users } from "lucide-react";
+import { ChefHat, CheckCircle2, Clock, Hand, Hourglass, LayoutGrid, List, Move, Pencil, Split, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useElementWidth, useNow } from "@/components/hooks";
 import { useAction, useQuery } from "@/components/live";
@@ -259,7 +259,7 @@ function FloorPlan({
               <button
                 key={t.id}
                 type="button"
-                aria-label={`Mesa ${t.code}, ${t.capacity} personas, ${order?.status === "listo" ? "pedido listo" : t.status}`}
+                aria-label={`Mesa ${t.code}, ${t.capacity} personas, ${order?.status === "listo" ? "pedido listo" : t.status}${order?.delays.length ? ", con demora en cocina" : ""}`}
                 onPointerDown={(e) => {
                   if (!edit) return;
                   e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
@@ -291,6 +291,11 @@ function FloorPlan({
                     <ChefHat className="size-3" /> {order.pending}
                   </span>
                 )}
+                {order && order.delays.length > 0 && (
+                  <span className="absolute -top-2 -left-2 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow ring-2 ring-white" title={order.delays.map((d) => `Tanda ${d.batchNumber}: ${d.reason}`).join(" · ")}>
+                    <Hourglass className="size-3" /> Demora
+                  </span>
+                )}
                 {order?.status === "listo" && (
                   <span className="absolute -top-2 -right-2 flex items-center gap-0.5 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
                     <CheckCircle2 className="size-3" /> Lista
@@ -317,6 +322,12 @@ function FloorPlan({
             <ChefHat className="size-3" />2
           </span>
           Tandas en cocina
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+            <Hourglass className="size-3" />
+          </span>
+          Demora informada por cocina
         </span>
       </div>
     </Card>
@@ -359,6 +370,11 @@ function TableList({ tables, orders, now, mineId, onSelect }: { tables: FloorTab
                 </p>
                 <p className="font-bold tabular-nums">{fmtMoney(o.total)}</p>
                 {o.pending > 0 && <Badge tone="warning">{o.pending} en cocina</Badge>}
+                {o.delays.length > 0 && (
+                  <Badge tone="warning">
+                    <Hourglass className="size-3" /> Demora
+                  </Badge>
+                )}
                 {o.status === "listo" && <Badge tone="success">Lista para cobrar</Badge>}
               </div>
             ) : (

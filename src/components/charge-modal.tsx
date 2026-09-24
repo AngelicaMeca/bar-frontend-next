@@ -3,9 +3,9 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useAction, useQuery } from "@/components/live";
-import { Modal } from "@/components/modal";
-import { Button, cn, Field, IconButton, Input, Loading, NumberInput, Segmented, Select } from "@/components/ui";
+import { useAction, useQuery } from "./live";
+import { Modal } from "./modal";
+import { Button, cn, Field, IconButton, Input, Loading, NumberInput, Segmented, Select } from "./ui";
 import { activeItems, saleTotals } from "@/lib/calc";
 import { fmtMoney, round2 } from "@/lib/format";
 import type { PaymentMethod } from "@/lib/types";
@@ -15,17 +15,22 @@ interface PayRow {
   amount: number | "";
 }
 
-/** Cobro con medios combinados, descuentos y seña (RF-CAJ-03/04/05). */
-export function ChargeModal({ orderId, methods, onClose }: { orderId: string; methods: PaymentMethod[]; onClose: () => void }) {
+/**
+ * Cobro con medios combinados, descuentos y seña (RF-CAJ-03/04/05). Lo usan la caja y el mozo en la mesa;
+ * al confirmar el cobro la mesa se libera.
+ */
+export function ChargeModal({ orderId, methods: methodsProp, onClose }: { orderId: string; methods?: PaymentMethod[]; onClose: () => void }) {
   const router = useRouter();
   const { data, loading } = useQuery("orders.get", { id: orderId });
+  const { data: cfg } = useQuery("config.get", {}, { live: false, enabled: !methodsProp });
+  const methods = methodsProp ?? cfg?.paymentMethods.filter((m) => m.active) ?? [];
   const { run, pending } = useAction();
   const [discountKind, setDiscountKind] = useState<"porcentaje" | "monto">("porcentaje");
   const [discountValue, setDiscountValue] = useState<number | "">("");
   const [discountReason, setDiscountReason] = useState("");
-  const [rows, setRows] = useState<PayRow[]>([{ methodId: methods[0]?.id ?? "efectivo", amount: "" }]);
+  const [rows, setRows] = useState<PayRow[]>([{ methodId: methodsProp?.[0]?.id ?? "efectivo", amount: "" }]);
 
-  if (loading || !data) {
+  if (loading || !data || !methods.length) {
     return (
       <Modal open onClose={onClose} title="Cobrar">
         <Loading />
@@ -55,7 +60,7 @@ export function ChargeModal({ orderId, methods, onClose }: { orderId: string; me
         discount: discount ? { ...discount, reason: discountReason } : null,
         payments: rows.filter((r) => Number(r.amount) > 0).map((r) => ({ methodId: r.methodId, amount: Number(r.amount) })),
       },
-      { success: "Cobro registrado. Mesa liberada." },
+      { success: `Cobro registrado. Mesa ${data.order.tableCodes} liberada.` },
     );
     if (res) router.push(`/caja/comprobante/${res.data.id}`);
   };

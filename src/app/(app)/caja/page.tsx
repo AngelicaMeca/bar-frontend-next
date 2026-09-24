@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Calculator, CheckCircle2, History, Lock, Plus, Receipt, Unlock, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Calculator, CheckCircle2, History, Hourglass, Lock, Plus, Receipt, Unlock, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
@@ -9,7 +9,7 @@ import { Modal, useConfirm } from "@/components/modal";
 import { Badge, Button, Card, CardHeader, cn, EmptyState, ErrorState, Field, Input, Loading, NumberInput, PageHeader, Select, StatCard, TableWrap, Tabs, Textarea } from "@/components/ui";
 import { fmtDateTime, fmtMoney, fmtTime, round2 } from "@/lib/format";
 import type { ProcOutput } from "@/server/rpc";
-import { ChargeModal } from "./charge-modal";
+import { ChargeModal } from "@/components/charge-modal";
 
 type Summary = NonNullable<ProcOutput<"cash.current">>;
 
@@ -126,7 +126,14 @@ function Chargeable({ onCharge }: { onCharge: (id: string) => void }) {
                 Pedido #{o.number} · {o.waiterName} · {o.guests} pers. · desde {fmtTime(o.openedAt)}
               </p>
             </div>
-            {o.status === "listo" ? <Badge tone="success" dot>Listo</Badge> : <Badge tone="warning" dot>En curso</Badge>}
+            <div className="flex flex-col items-end gap-1">
+              {o.status === "listo" ? <Badge tone="success" dot>Listo</Badge> : <Badge tone="warning" dot>En curso</Badge>}
+              {o.delayed > 0 && (
+                <Badge tone="warning">
+                  <Hourglass className="size-3" /> Demora en cocina
+                </Badge>
+              )}
+            </div>
           </div>
           <div className="mt-4 flex items-end justify-between gap-3">
             <div>
@@ -299,7 +306,7 @@ function CloseShift({ summary }: { summary: Summary }) {
   const exceeded = complete && Math.abs(diff) > summary.tolerance;
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+    <div className="grid gap-5 lg:grid-cols-[1fr_360px] [&>*]:min-w-0">
       <Card>
         <CardHeader title="Arqueo de cierre" subtitle="Ingrese el monto real contado por cada medio de pago" icon={<Calculator className="size-5" />} />
         <TableWrap>

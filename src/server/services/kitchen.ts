@@ -1,5 +1,6 @@
+import { z } from "zod";
 import { activeItems } from "@/lib/calc";
-import { assert, type Ctx, fullName, getConfig, must, notify, nowIso } from "../core";
+import { assert, audit, type Ctx, fullName, getConfig, must, notify, nowIso } from "../core";
 import { recomputeOrder } from "./orders";
 
 /** Cola de cocina FIFO con alerta de demora (RF-COC-01, 01.1, 02). */
@@ -47,6 +48,47 @@ export function toggleItemPrepared(ctx: Ctx, input: { orderId: string; batchId: 
     const item = must(b.items.find((i) => i.id === input.itemId), "Ítem inexistente");
     item.prepared = !item.prepared;
     ctx.store.put("orders", o);
+  });
+}
+
+export const delaySchema = z.object({
+  orderId: z.string(),
+  batchId: z.string(),
+  reason: z.string().trim().min(3, "Indique el motivo de la demora").max(200),
+  minutes: z.number().int().min(1).max(240).optional(),
+});
+
+/** Cocina informa manualmente una demora en una tanda pendiente; se avisa al mozo responsable. */
+export function markBatchDelay(ctx: Ctx, input: z.infer<typeof delaySchema>) {
+  return ctx.store.tx(() => {
+    const o = must(ctx.store.get("orders", input.orderId), "Pedido inexistente");
+    assert(o.status === "abierto" || o.status === "listo", "El pedido ya fue cerrado");
+    const b = must(o.batches.find((x) => x.id === input.batchId), "Tanda inexistente");
+    assert(b.status === "pendiente", "Sólo pueden marcarse con demora las tandas pendientes en cocina");
+    const updating = !!b.delay;
+    b.delay = { reason: input.reason, minutes: input.minutes, at: nowIso(ctx), byUserId: ctx.user.id, byUserName: fullName(ctx.user) };
+    ctx.store.put("orders", o);
+    const eta = input.minutes ? ` Estiman ${input.minutes} min más.` : "";
+    notify(ctx, {
+      userId: o.waiterId,
+      kind: "alerta",
+      title: `Demora en ${o.tableCodes} — tanda ${b.number}`,
+      body: `${input.reason}.${eta}`,
+      link: `/pedidos/${o.id}`,
+    });
+    audit(ctx, updating ? "Actualización de demora" : "Demora informada", "pedido", `#${o.number} (${o.tableCodes}) tanda ${b.number}: ${input.reason}${input.minutes ? ` (+${input.minutes} min)` : ""}`, o.id);
+    return b;
+  });
+}
+
+export function clearBatchDelay(ctx: Ctx, input: { orderId: string; batchId: string }) {
+  return ctx.store.tx(() => {
+    const o = must(ctx.store.get("orders", input.orderId), "Pedido inexistente");
+    const b = must(o.batches.find((x) => x.id === input.batchId), "Tanda inexistente");
+    assert(b.delay, "La tanda no tiene una demora informada");
+    b.delay = undefined;
+    ctx.store.put("orders", o);
+    audit(ctx, "Demora resuelta", "pedido", `#${o.number} (${o.tableCodes}) tanda ${b.number}`, o.id);
   });
 }
 

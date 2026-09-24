@@ -58,6 +58,31 @@ describe("Pedidos, tandas y cocina", () => {
     expect(() => orders.openOrder(ctx(users.mozo), { tableId: t1.id, guests: 1 })).toThrow(/pedido activo/);
   });
 
+  it("cocina marca una tanda con demora: avisa al mozo, se ve en el pedido y se puede quitar", () => {
+    const { ctx, users, t1, mila, store } = setup();
+    const o = orders.openOrder(ctx(users.mozo), { tableId: t1.id, guests: 2 });
+    const bid = o.batches[0].id;
+    orders.addItem(ctx(users.mozo), { orderId: o.id, batchId: bid, productId: mila.id, qty: 1, notes: "" });
+    // No se puede marcar una tanda que todavía no está en cocina
+    expect(() => kitchen.markBatchDelay(ctx(users.cocina), { orderId: o.id, batchId: bid, reason: "Falta insumo" })).toThrow(/pendientes/);
+    orders.sendBatch(ctx(users.mozo), { orderId: o.id, batchId: bid });
+
+    kitchen.markBatchDelay(ctx(users.cocina), { orderId: o.id, batchId: bid, reason: "Falta insumo", minutes: 15 });
+    expect(store.get("orders", o.id)!.batches[0].delay).toMatchObject({ reason: "Falta insumo", minutes: 15, byUserId: users.cocina.id });
+    expect(store.find("notifications", (n) => n.userId === users.mozo.id && n.title.startsWith("Demora")).length).toBe(1);
+    expect(orders.listOrders(ctx(users.mozo), { active: true })[0].delayedBatches).toBe(1);
+    expect(kitchen.kitchenQueue(ctx(users.cocina)).pending[0].batch.delay?.reason).toBe("Falta insumo");
+
+    kitchen.clearBatchDelay(ctx(users.cocina), { orderId: o.id, batchId: bid });
+    expect(orders.listOrders(ctx(users.mozo), { active: true })[0].delayedBatches).toBe(0);
+
+    // Al quedar lista, la demora deja de contarse como vigente
+    kitchen.markBatchDelay(ctx(users.cocina), { orderId: o.id, batchId: bid, reason: "Mucha demanda" });
+    kitchen.markBatchReady(ctx(users.cocina), { orderId: o.id, batchId: bid });
+    expect(orders.listOrders(ctx(users.mozo), { active: true })[0].delayedBatches).toBe(0);
+    expect(() => kitchen.markBatchDelay(ctx(users.cocina), { orderId: o.id, batchId: bid, reason: "Otra" })).toThrow(/pendientes/);
+  });
+
   it("la cola de cocina es FIFO", () => {
     const { ctx, users, t1, t2, mila, advance } = setup();
     const a = orders.openOrder(ctx(users.mozo), { tableId: t1.id, guests: 1 });

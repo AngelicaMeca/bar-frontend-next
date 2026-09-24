@@ -149,6 +149,15 @@ export interface OrderItem {
   createdAt: string;
 }
 
+/** Demora informada manualmente por cocina sobre una tanda pendiente. */
+export interface BatchDelay {
+  reason: string;
+  minutes?: number; // demora estimada adicional
+  at: string;
+  byUserId: string;
+  byUserName: string;
+}
+
 export interface Batch {
   id: string;
   number: number;
@@ -159,6 +168,7 @@ export interface Batch {
   readyAt?: string;
   stockDeducted: boolean;
   items: OrderItem[];
+  delay?: BatchDelay;
 }
 
 export interface Order {

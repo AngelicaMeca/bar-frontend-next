@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, ArrowRight, CalendarClock, ChefHat, LayoutDashboard, LayoutGrid, Receipt, Timer, Trophy, Users, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarClock, ChefHat, Hourglass, LayoutDashboard, LayoutGrid, Receipt, Timer, Trophy, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { BarsChart, moneyAxis, periodLabel } from "@/components/charts";
 import { useNow } from "@/components/hooks";
@@ -64,6 +64,7 @@ export default function DashboardPage() {
             </dl>
             <div className="mt-5 space-y-2 border-t border-ink-100 pt-4 text-sm">
               <Row icon={<ChefHat className="size-4" />} label="Tandas en cocina" value={data.pendingBatches} warn={data.pendingBatches > 5} />
+              <Row icon={<Hourglass className="size-4" />} label="Demoras informadas por cocina" value={data.delayedBatches} warn={data.delayedBatches > 0} />
               <Row icon={<Receipt className="size-4" />} label="Mesas listas para cobrar" value={data.readyOrders} />
               <Row icon={<CalendarClock className="size-4" />} label="Reservas de hoy" value={`${data.reservationsToday} (${data.peopleReservedToday} pers.)`} />
               <Row icon={<Users className="size-4" />} label="Comensales atendidos hoy" value={data.today.guests} />

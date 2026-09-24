@@ -81,7 +81,7 @@ tests/                   Pruebas de los módulos críticos
 | Pedidos (RF-PED) | **Salón → mesa → Pedido**: tandas independientes, búsqueda por alias, observaciones, edición/cancelación con confirmación de cocina, totales, estado “listo” automático |
 | Cocina (RF-COC) | **Cocina**: cola FIFO, mesa/agrupación de origen, alerta de demora, tildado de ítems, aviso al mozo, marcas de tiempo |
 | Proveedores (RF-PRV) | **Proveedores**: ABM, órdenes de compra y estados, recepción total/parcial con faltantes y comentarios, actualización de stock, historial y evolución de costos |
-| Caja (RF-CAJ) | **Caja**: apertura/cierre por turno, cobro con medios combinados, descuentos, seña, comprobante interno sin validez fiscal, movimientos, arqueo con tolerancia |
+| Caja (RF-CAJ) | **Caja**: apertura/cierre por turno, movimientos, arqueo con tolerancia. **Cobro** desde Caja o por el mozo en la mesa (panel de la mesa o detalle del pedido): medios combinados, descuentos, seña, comprobante interno sin validez fiscal; al cobrar la mesa se libera. Si los clientes se fueron sin consumir, el mozo puede liberar la mesa directamente |
 | Stock (RF-STK) | **Stock**: ABM de insumos unitarios/granel, recetas (en Productos), descuento automático, alertas de mínimo y vencimiento, lotes, ajustes, kardex, conteo de cierre |
 | Reservas (RF-RES) | **Reservas**: agenda día/semana, validación de disponibilidad, seña, cancelación con regla de devolución, reserva automática de mesa, no-show, recordatorios interno y al cliente, historial por cliente, lista de espera con prioridad por no-show |
 | Reportes (RF-REP) | **Reportes** y **Tablero**: ventas, ranking, consumo de stock, arqueos, mozos, tiempos de cocina, reservas, KPIs, comparación de períodos, exportación PDF y Excel (CSV) |

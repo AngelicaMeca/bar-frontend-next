@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Batch, BatchKind, Order, OrderItem } from "@/lib/types";
-import { activeItems, draftBatch, isOrderReady, orderTotal } from "@/lib/calc";
+import { activeItems, delayedBatches, draftBatch, isOrderReady, orderTotal } from "@/lib/calc";
 import { AppError, assert, audit, type Ctx, fullName, must, nowIso, uid } from "../core";
 import { applyStockChange, checkStock, unitRequirements } from "./stock";
 import { groupTables, recordAssignment } from "./tables";
@@ -325,5 +325,6 @@ export function listOrders(ctx: Ctx, input: { tableId?: string; status?: string;
       total: orderTotal(o),
       pendingBatches: o.batches.filter((b) => b.status === "pendiente" && activeItems(b).length > 0).length,
       readyBatches: o.batches.filter((b) => b.status === "listo").length,
+      delayedBatches: delayedBatches(o).length,
     }));
 }

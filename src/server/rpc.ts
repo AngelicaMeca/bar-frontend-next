@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Permission } from "@/lib/permissions";
-import { activeItems, orderTotal } from "@/lib/calc";
+import { activeItems, delayedBatches, orderTotal } from "@/lib/calc";
 import { type Ctx, fullName, getConfig } from "./core";
 import * as admin from "./services/admin";
 import * as auth from "./services/auth";
@@ -55,6 +55,7 @@ function floorState(ctx: Ctx) {
       pending: o.batches.filter((b) => b.status === "pendiente" && activeItems(b).length > 0).length,
       ready: o.batches.filter((b) => b.status === "listo" && activeItems(b).length > 0).length,
       draftItems: o.batches.filter((b) => b.status === "borrador").reduce((a, b) => a + activeItems(b).length, 0),
+      delays: delayedBatches(o).map((b) => ({ batchNumber: b.number, ...b.delay! })),
       waiterId: o.waiterId,
     })),
     reservations: upcoming.map((r) => ({ id: r.id, at: r.at, customerName: r.customerName, people: r.people, tableIds: r.tableIds, comments: r.comments })),
@@ -115,6 +116,8 @@ export const procedures = {
   // ---------- Cocina ----------
   "kitchen.queue": proc("cocina.operar", none, (ctx) => kitchen.kitchenQueue(ctx)),
   "kitchen.toggleItem": proc("cocina.operar", z.object({ orderId: z.string(), batchId: z.string(), itemId: z.string() }), (ctx, i) => kitchen.toggleItemPrepared(ctx, i)),
+  "kitchen.delay": proc("cocina.operar", kitchen.delaySchema, (ctx, i) => kitchen.markBatchDelay(ctx, i)),
+  "kitchen.clearDelay": proc("cocina.operar", z.object({ orderId: z.string(), batchId: z.string() }), (ctx, i) => kitchen.clearBatchDelay(ctx, i)),
   "kitchen.ready": proc("cocina.operar", z.object({ orderId: z.string(), batchId: z.string() }), (ctx, i) => kitchen.markBatchReady(ctx, i)),
 
   // ---------- Caja ----------
@@ -126,8 +129,8 @@ export const procedures = {
   "cash.close": proc("caja.operar", cash.closeShiftSchema, (ctx, i) => cash.closeShift(ctx, i)),
   "cash.movement": proc("caja.operar", cash.movementSchema, (ctx, i) => cash.addMovement(ctx, i)),
   "cash.chargeable": proc("caja.operar", none, (ctx) => cash.chargeableOrders(ctx)),
-  "cash.charge": proc("caja.operar", cash.chargeSchema, (ctx, i) => cash.charge(ctx, i)),
-  "cash.sale": proc(["caja.operar", "reportes.ver"], id, (ctx, i) => cash.getSale(ctx, i.id)),
+  "cash.charge": proc("cobros.realizar", cash.chargeSchema, (ctx, i) => cash.charge(ctx, i)),
+  "cash.sale": proc(["caja.operar", "cobros.realizar", "reportes.ver"], id, (ctx, i) => cash.getSale(ctx, i.id)),
   "cash.shifts": proc(["caja.operar", "reportes.ver"], z.object({ limit: z.number().optional() }), (ctx, i) => cash.listShifts(ctx, i)),
   "cash.shiftDetail": proc(["caja.operar", "reportes.ver"], id, (ctx, i) => cash.shiftSummary(ctx, i.id)),
 

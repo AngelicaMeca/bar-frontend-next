@@ -244,7 +244,7 @@ function SalesTab({ range }: { range: RangeInput }) {
           <BarsChart data={data.series.map((x) => ({ ...x, label: periodLabel(x.period) }))} x="label" series={[{ key: "revenue", label: "Facturación" }]} format={moneyAxis} />
         </div>
       </Card>
-      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
+      <div className="grid gap-4 xl:grid-cols-[1fr_380px] [&>*]:min-w-0">
         <Card className="overflow-hidden">
           <CardHeader title="Ventas por producto" actions={<ExportButtons title="Reporte de ventas" range={range} cols={cols} rows={data.byProduct} summary={summary} />} />
           <DataTable cols={cols} rows={data.byProduct} />

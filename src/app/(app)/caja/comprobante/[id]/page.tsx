@@ -48,7 +48,7 @@ export default function ReceiptPage() {
           <Line label="Pedido" value={`#${sale.orderNumber}`} />
           <Line label="Comensales" value={String(sale.guests)} />
           <Line label="Atendió" value={waiterName} />
-          <Line label="Cajero/a" value={sale.userName} />
+          <Line label="Cobró" value={sale.userName} />
         </dl>
         <div className="my-3 border-t border-dashed border-ink-300" />
         <table className="w-full text-xs">
