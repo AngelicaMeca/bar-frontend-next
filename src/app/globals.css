@@ -1,26 +1,119 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * Paleta "La Barra": tinta azul noche para la estructura, ámbar/cobre como acento
+ * (evoca madera y whisky) y colores de estado claros para operar rápido en el salón.
+ */
+@theme {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --color-brand-50: #fdf7ec;
+  --color-brand-100: #f9ead0;
+  --color-brand-200: #f2d29d;
+  --color-brand-300: #eab565;
+  --color-brand-400: #e39a3c;
+  --color-brand-500: #d98124;
+  --color-brand-600: #bf641b;
+  --color-brand-700: #9e4a19;
+  --color-brand-800: #803b1b;
+  --color-brand-900: #69321a;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  --color-ink-50: #f5f6f9;
+  --color-ink-100: #e9ebf1;
+  --color-ink-200: #cfd3df;
+  --color-ink-300: #a8afc3;
+  --color-ink-400: #7a84a0;
+  --color-ink-500: #5a6483;
+  --color-ink-600: #464e6a;
+  --color-ink-700: #333a52;
+  --color-ink-800: #1f2438;
+  --color-ink-900: #151a2b;
+  --color-ink-950: #0d111d;
+
+  --color-surface: #f7f5f1;
+
+  --shadow-card: 0 1px 2px rgb(13 17 29 / 0.04), 0 1px 3px rgb(13 17 29 / 0.06);
+  --shadow-pop: 0 10px 30px -10px rgb(13 17 29 / 0.25), 0 4px 10px -4px rgb(13 17 29 / 0.1);
+
+  --animate-fade-in: fade-in 0.18s ease-out;
+  --animate-slide-up: slide-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in: slide-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pulse-ring: pulse-ring 1.6s ease-out infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes pulse-ring {
+    0% { box-shadow: 0 0 0 0 rgb(225 29 72 / 0.45); }
+    70% { box-shadow: 0 0 0 10px rgb(225 29 72 / 0); }
+    100% { box-shadow: 0 0 0 0 rgb(225 29 72 / 0); }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--color-surface);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+  }
+  ::selection {
+    background: var(--color-brand-200);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  input[type="number"]::-webkit-inner-spin-button {
+    opacity: 0.4;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-ink-100 bg-white shadow-card;
+  }
+  .input {
+    @apply h-10 w-full rounded-xl border border-ink-200 bg-white px-3 text-sm text-ink-900 shadow-xs outline-none transition placeholder:text-ink-400 focus:border-brand-400 focus:ring-4 focus:ring-brand-100 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-ink-500;
+  }
+  .table-base {
+    @apply w-full border-collapse text-sm;
+  }
+  .table-base thead th {
+    @apply sticky top-0 z-[1] border-b border-ink-100 bg-ink-50/95 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide whitespace-nowrap text-ink-500 backdrop-blur;
+  }
+  .table-base tbody td {
+    @apply border-b border-ink-100/70 px-3 py-2.5 align-middle text-ink-700;
+  }
+  .table-base tbody tr:hover td {
+    @apply bg-brand-50/40;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-200) transparent;
+  }
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
 }
