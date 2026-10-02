@@ -4,70 +4,70 @@ import { fmtMoney } from "@/lib/format";
 import { assert, audit, type Ctx, getConfig, must, uid } from "../core";
 
 // ---------- Categorías (RF-ADM-02) ----------
-export function listCategories(ctx: Ctx, includeInactive = false) {
-  return ctx.store
-    .all("categories")
+export async function listCategories(ctx: Ctx, includeInactive = false) {
+  return (await ctx.store
+      .all("categories"))
     .filter((c) => includeInactive || c.active)
     .sort((a, b) => a.order - b.order);
 }
 
 export function saveCategory(ctx: Ctx, input: { id?: string; name: string }) {
-  return ctx.store.tx(() => {
+  return ctx.store.tx(async () => {
     const name = input.name.trim();
-    assert(name.length >= 2, "Nombre de categoría inválido");
-    const dup = ctx.store.find("categories", (c) => c.active && c.id !== input.id && c.name.toLowerCase() === name.toLowerCase());
+    assert(name.length >= 2 && name.length <= 60, "Nombre de categoría inválido (2 a 60 caracteres)");
+    const dup = await ctx.store.find("categories", (c) => c.active && c.id !== input.id && c.name.toLowerCase() === name.toLowerCase());
     assert(dup.length === 0, "Ya existe una categoría con ese nombre");
     if (input.id) {
-      const c = must(ctx.store.get("categories", input.id), "Categoría inexistente");
-      ctx.store.put("categories", { ...c, name, active: true });
-      audit(ctx, "Modificación de categoría", "categoría", `${c.name} → ${name}`, c.id);
+      const c = must(await ctx.store.get("categories", input.id), "Categoría inexistente");
+      await ctx.store.put("categories", { ...c, name, active: true });
+      await audit(ctx, "Modificación de categoría", "categoría", `${c.name} → ${name}`, c.id);
       return;
     }
-    const max = Math.max(0, ...ctx.store.all("categories").map((c) => c.order));
+    const max = Math.max(0, ...(await ctx.store.all("categories")).map((c) => c.order));
     const c = { id: uid(), name, order: max + 1, active: true };
-    ctx.store.put("categories", c);
-    audit(ctx, "Alta de categoría", "categoría", name, c.id);
+    await ctx.store.put("categories", c);
+    await audit(ctx, "Alta de categoría", "categoría", name, c.id);
   });
 }
 
 export function setCategoryActive(ctx: Ctx, input: { id: string; active: boolean }) {
-  return ctx.store.tx(() => {
-    const c = must(ctx.store.get("categories", input.id), "Categoría inexistente");
+  return ctx.store.tx(async () => {
+    const c = must(await ctx.store.get("categories", input.id), "Categoría inexistente");
     if (!input.active) {
-      const used = ctx.store.find("products", (p) => p.active && p.categoryId === c.id);
+      const used = await ctx.store.find("products", (p) => p.active && p.categoryId === c.id);
       assert(used.length === 0, `La categoría tiene ${used.length} producto(s) activos`);
     }
-    ctx.store.put("categories", { ...c, active: input.active });
-    audit(ctx, input.active ? "Reactivación de categoría" : "Baja de categoría", "categoría", c.name, c.id);
+    await ctx.store.put("categories", { ...c, active: input.active });
+    await audit(ctx, input.active ? "Reactivación de categoría" : "Baja de categoría", "categoría", c.name, c.id);
   });
 }
 
 export function reorderCategories(ctx: Ctx, ids: string[]) {
-  return ctx.store.tx(() => {
-    ids.forEach((id, i) => {
-      const c = ctx.store.get("categories", id);
-      if (c) ctx.store.put("categories", { ...c, order: i + 1 });
-    });
-    audit(ctx, "Orden de categorías", "categoría", "Se reordenaron las categorías");
+  return ctx.store.tx(async () => {
+    for (const [i, id] of ids.entries()) {
+      const c = await ctx.store.get("categories", id);
+      if (c) await ctx.store.put("categories", { ...c, order: i + 1 });
+    }
+    await audit(ctx, "Orden de categorías", "categoría", "Se reordenaron las categorías");
   });
 }
 
 // ---------- Productos (RF-ADM-01) ----------
 export const productSchema = z.object({
-  name: z.string().trim().min(2, "Nombre demasiado corto"),
+  name: z.string().trim().min(2, "Nombre demasiado corto").max(120),
   price: z.number().min(0, "Precio inválido"),
   categoryId: z.string().min(1, "Seleccione una categoría"),
   available: z.boolean().default(true),
-  aliases: z.array(z.string().trim().min(1)).default([]),
+  aliases: z.array(z.string().trim().min(1).max(40, "Cada alias admite hasta 40 caracteres")).default([]),
   recipe: z.array(z.object({ supplyId: z.string(), qty: z.number().positive("Cantidad de receta inválida") })).default([]),
   description: z.string().default(""),
 });
 
-export function listProducts(ctx: Ctx, input: { includeInactive?: boolean } = {}) {
-  const cats = new Map(listCategories(ctx, true).map((c) => [c.id, c]));
-  const supplies = new Map(ctx.store.all("supplies").map((s) => [s.id, s]));
-  return ctx.store
-    .all("products")
+export async function listProducts(ctx: Ctx, input: { includeInactive?: boolean } = {}) {
+  const cats = new Map((await listCategories(ctx, true)).map((c) => [c.id, c]));
+  const supplies = new Map((await ctx.store.all("supplies")).map((s) => [s.id, s]));
+  return (await ctx.store
+      .all("products"))
     .filter((p) => input.includeInactive || p.active)
     .map((p) => {
       // Porciones disponibles según stock de insumos unitarios.
@@ -83,10 +83,10 @@ export function listProducts(ctx: Ctx, input: { includeInactive?: boolean } = {}
     .sort((a, b) => a.categoryOrder - b.categoryOrder || a.name.localeCompare(b.name));
 }
 
-function validateRecipe(ctx: Ctx, recipe: Product["recipe"]) {
+async function validateRecipe(ctx: Ctx, recipe: Product["recipe"]) {
   const seen = new Set<string>();
   for (const r of recipe) {
-    const s = must(ctx.store.get("supplies", r.supplyId), "Insumo inexistente en la receta");
+    const s = must(await ctx.store.get("supplies", r.supplyId), "Insumo inexistente en la receta");
     assert(s.active, `El insumo ${s.name} está dado de baja`);
     assert(!seen.has(r.supplyId), `Insumo repetido en la receta: ${s.name}`);
     seen.add(r.supplyId);
@@ -94,48 +94,48 @@ function validateRecipe(ctx: Ctx, recipe: Product["recipe"]) {
 }
 
 export function createProduct(ctx: Ctx, input: z.infer<typeof productSchema>) {
-  return ctx.store.tx(() => {
-    must(ctx.store.get("categories", input.categoryId), "Categoría inexistente");
-    const dup = ctx.store.find("products", (p) => p.active && p.name.toLowerCase() === input.name.toLowerCase());
+  return ctx.store.tx(async () => {
+    must(await ctx.store.get("categories", input.categoryId), "Categoría inexistente");
+    const dup = await ctx.store.find("products", (p) => p.active && p.name.toLowerCase() === input.name.toLowerCase());
     assert(dup.length === 0, "Ya existe un producto con ese nombre");
-    validateRecipe(ctx, input.recipe);
+    await validateRecipe(ctx, input.recipe);
     const p: Product = { id: uid(), ...input, active: true };
-    ctx.store.put("products", p);
-    audit(ctx, "Alta de producto", "producto", `${p.name} — ${fmtMoney(p.price)}`, p.id);
+    await ctx.store.put("products", p);
+    await audit(ctx, "Alta de producto", "producto", `${p.name} — ${fmtMoney(p.price)}`, p.id);
     return p;
   });
 }
 
 export function updateProduct(ctx: Ctx, input: z.infer<typeof productSchema> & { id: string }) {
-  return ctx.store.tx(() => {
-    const p = must(ctx.store.get("products", input.id), "Producto inexistente");
-    must(ctx.store.get("categories", input.categoryId), "Categoría inexistente");
-    const dup = ctx.store.find("products", (x) => x.active && x.id !== p.id && x.name.toLowerCase() === input.name.toLowerCase());
+  return ctx.store.tx(async () => {
+    const p = must(await ctx.store.get("products", input.id), "Producto inexistente");
+    must(await ctx.store.get("categories", input.categoryId), "Categoría inexistente");
+    const dup = await ctx.store.find("products", (x) => x.active && x.id !== p.id && x.name.toLowerCase() === input.name.toLowerCase());
     assert(dup.length === 0, "Ya existe un producto con ese nombre");
-    validateRecipe(ctx, input.recipe);
+    await validateRecipe(ctx, input.recipe);
     const updated = { ...p, ...input };
-    ctx.store.put("products", updated);
+    await ctx.store.put("products", updated);
     if (p.price !== input.price) {
-      audit(ctx, "Cambio de precio", "producto", `${p.name}: ${fmtMoney(p.price)} → ${fmtMoney(input.price)}`, p.id);
+      await audit(ctx, "Cambio de precio", "producto", `${p.name}: ${fmtMoney(p.price)} → ${fmtMoney(input.price)}`, p.id);
     }
-    audit(ctx, "Modificación de producto", "producto", p.name, p.id);
+    await audit(ctx, "Modificación de producto", "producto", p.name, p.id);
     return updated;
   });
 }
 
 export function setProductActive(ctx: Ctx, input: { id: string; active: boolean }) {
-  return ctx.store.tx(() => {
-    const p = must(ctx.store.get("products", input.id), "Producto inexistente");
-    ctx.store.put("products", { ...p, active: input.active });
-    audit(ctx, input.active ? "Reactivación de producto" : "Baja de producto", "producto", p.name, p.id);
+  return ctx.store.tx(async () => {
+    const p = must(await ctx.store.get("products", input.id), "Producto inexistente");
+    await ctx.store.put("products", { ...p, active: input.active });
+    await audit(ctx, input.active ? "Reactivación de producto" : "Baja de producto", "producto", p.name, p.id);
   });
 }
 
 export function toggleAvailability(ctx: Ctx, input: { id: string; available: boolean }) {
-  return ctx.store.tx(() => {
-    const p = must(ctx.store.get("products", input.id), "Producto inexistente");
-    ctx.store.put("products", { ...p, available: input.available });
-    audit(ctx, "Disponibilidad de producto", "producto", `${p.name}: ${input.available ? "disponible" : "no disponible"}`, p.id);
+  return ctx.store.tx(async () => {
+    const p = must(await ctx.store.get("products", input.id), "Producto inexistente");
+    await ctx.store.put("products", { ...p, available: input.available });
+    await audit(ctx, "Disponibilidad de producto", "producto", `${p.name}: ${input.available ? "disponible" : "no disponible"}`, p.id);
   });
 }
 
@@ -178,14 +178,14 @@ const CONFIG_LABELS: Partial<Record<keyof Config, string>> = {
 };
 
 export function updateConfig(ctx: Ctx, input: z.infer<typeof configSchema>) {
-  return ctx.store.tx(() => {
-    const prev = getConfig(ctx.store);
+  return ctx.store.tx(async () => {
+    const prev = await getConfig(ctx.store);
     assert(input.paymentMethods.some((m) => m.active), "Debe haber al menos un medio de pago habilitado");
     assert(input.paymentMethods.some((m) => m.isCash), "Debe existir un medio de pago de tipo efectivo");
     const ids = new Set(input.paymentMethods.map((m) => m.id));
     assert(ids.size === input.paymentMethods.length, "Hay medios de pago con identificador repetido");
     const next: Config = { ...prev, ...input, id: "config" };
-    ctx.store.put("config", next);
+    await ctx.store.put("config", next);
     const changes: string[] = [];
     for (const [k, label] of Object.entries(CONFIG_LABELS)) {
       const key = k as keyof Config;
@@ -194,29 +194,29 @@ export function updateConfig(ctx: Ctx, input: z.infer<typeof configSchema>) {
     if (JSON.stringify(prev.paymentMethods) !== JSON.stringify(next.paymentMethods)) {
       changes.push(`Medios de pago: ${next.paymentMethods.filter((m) => m.active).map((m) => m.name).join(", ")}`);
     }
-    if (changes.length) audit(ctx, "Cambio de configuración", "configuración", changes.join("; "));
+    if (changes.length) await audit(ctx, "Cambio de configuración", "configuración", changes.join("; "));
     return next;
   });
 }
 
 // ---------- Auditoría ----------
-export function listAudit(ctx: Ctx, input: { q?: string; entity?: string; limit?: number }) {
+export async function listAudit(ctx: Ctx, input: { q?: string; entity?: string; limit?: number }) {
   const q = (input.q ?? "").toLowerCase();
-  return ctx.store
-    .find(
-      "audit",
-      (a) =>
-        (!input.entity || a.entity === input.entity) &&
-        (!q || `${a.userName} ${a.action} ${a.detail}`.toLowerCase().includes(q)),
-    )
+  return (await ctx.store
+      .find(
+        "audit",
+        (a) =>
+          (!input.entity || a.entity === input.entity) &&
+          (!q || `${a.userName} ${a.action} ${a.detail}`.toLowerCase().includes(q)),
+      ))
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, input.limit ?? 500);
 }
 
 // ---------- Notificaciones ----------
-export function myNotifications(ctx: Ctx) {
-  const list = ctx.store
-    .find("notifications", (n) => n.userId === ctx.user.id || (!!n.roles && n.roles.some((r) => ctx.user.roles.includes(r))))
+export async function myNotifications(ctx: Ctx) {
+  const list = (await ctx.store
+      .find("notifications", (n) => n.userId === ctx.user.id || (!!n.roles && n.roles.some((r) => ctx.user.roles.includes(r)))))
     .sort((a, b) => b.at.localeCompare(a.at))
     .slice(0, 50)
     .map((n) => ({ ...n, read: n.readBy.includes(ctx.user.id) }));
@@ -224,11 +224,11 @@ export function myNotifications(ctx: Ctx) {
 }
 
 export function markNotificationsRead(ctx: Ctx, input: { ids?: string[] }) {
-  return ctx.store.tx(() => {
-    const mine = myNotifications(ctx).items.filter((n) => !n.read && (!input.ids || input.ids.includes(n.id)));
+  return ctx.store.tx(async () => {
+    const mine = (await myNotifications(ctx)).items.filter((n) => !n.read && (!input.ids || input.ids.includes(n.id)));
     for (const n of mine) {
-      const doc = ctx.store.get("notifications", n.id);
-      if (doc) ctx.store.put("notifications", { ...doc, readBy: [...doc.readBy, ctx.user.id] });
+      const doc = await ctx.store.get("notifications", n.id);
+      if (doc) await ctx.store.put("notifications", { ...doc, readBy: [...doc.readBy, ctx.user.id] });
     }
   });
 }

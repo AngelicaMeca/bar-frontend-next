@@ -5,7 +5,7 @@ import { logout, SESSION_COOKIE } from "@/server/services/auth";
 export async function POST() {
   try {
     const jar = await cookies();
-    logout(getStore(), jar.get(SESSION_COOKIE)?.value);
+    await logout(await getStore(), jar.get(SESSION_COOKIE)?.value);
     jar.delete(SESSION_COOKIE);
     return Response.json({ data: null });
   } catch (e) {

@@ -44,7 +44,7 @@ export interface PasswordResetRequest {
   userId?: string;
   createdAt: string;
   status: "pendiente" | "resuelta" | "descartada";
-  resolvedBy?: string;
+  resolvedBy?: string; // id del usuario que resolvió
   resolvedAt?: string;
 }
 
@@ -88,6 +88,7 @@ export interface TableGroup {
 
 export interface WaiterAssignment {
   id: string;
+  orderId: string;
   tableIds: string[];
   tableCodes: string;
   waiterId: string;
@@ -187,6 +188,7 @@ export interface Order {
   batches: Batch[];
   reservationId?: string;
   saleId?: string;
+  cancelReason?: string;
 }
 
 // ---------- Stock ----------
@@ -282,12 +284,13 @@ export interface PurchaseOrder {
   supplierName: string;
   status: PurchaseStatus;
   createdAt: string;
-  createdBy: string;
+  createdBy: string; // nombre (para mostrar)
+  createdById: string;
   expectedAt?: string;
   items: PurchaseItem[];
   receptions: Reception[];
   notes: string;
-  history: { at: string; status: PurchaseStatus; userName: string }[];
+  history: { at: string; status: PurchaseStatus; userId: string; userName: string }[];
 }
 
 // ---------- Caja ----------
@@ -405,7 +408,8 @@ export interface Reservation {
   status: ReservationStatus;
   deposit?: Deposit;
   createdAt: string;
-  createdBy: string;
+  createdBy: string; // nombre (para mostrar)
+  createdById: string;
   cancelledAt?: string;
   internalReminderAt?: string;
   clientReminderAt?: string;

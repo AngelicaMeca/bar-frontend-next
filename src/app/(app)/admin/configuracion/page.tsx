@@ -1,11 +1,11 @@
 "use client";
 
-import { CalendarClock, ChefHat, CreditCard, DatabaseBackup, LayoutGrid, Plus, Save, Settings, ShieldCheck, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { CalendarClock, ChefHat, CheckCircle2, CreditCard, Database, DatabaseBackup, LayoutGrid, Plus, Save, Settings, ShieldCheck, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useAction, useQuery } from "@/components/live";
 import { useConfirm } from "@/components/modal";
 import { useToast } from "@/components/toast";
-import { Button, Card, CardHeader, Field, IconButton, Input, Loading, NumberInput, PageHeader, Select, Switch } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Field, IconButton, Input, Loading, NumberInput, PageHeader, Select, Switch } from "@/components/ui";
 import type { Config, TableShape } from "@/lib/types";
 
 type NumKey = { [K in keyof Config]: Config[K] extends number ? K : never }[keyof Config];
@@ -134,6 +134,7 @@ function ConfigForm({ initial }: { initial: Config }) {
 
         <div className="space-y-5">
           <GenerateLayout />
+          <DatabaseStatus />
           <Backup />
         </div>
       </div>
@@ -232,6 +233,69 @@ function Backup() {
         >
           <DatabaseBackup className="size-4" /> Descargar respaldo
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+type DbStatus =
+  | { configured: false }
+  | { configured: true; connected: false; target: string; error: string }
+  | { configured: true; connected: true; target: string; version: string; tables: number; schema_ok: boolean; api_blocked: boolean | null; supabase: boolean };
+
+/** Estado de la conexión a PostgreSQL / Supabase (DATABASE_URL). */
+function DatabaseStatus() {
+  const [status, setStatus] = useState<DbStatus | null>(null);
+  const [nonce, setNonce] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/db/estado")
+      .then((r) => r.json())
+      .then((j) => !cancelled && setStatus(j.data ?? null))
+      .catch(() => !cancelled && setStatus(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce]);
+
+  return (
+    <Card>
+      <CardHeader
+        title="Base de datos PostgreSQL"
+        subtitle="Conexión configurada en DATABASE_URL (.env.local)"
+        icon={<Database className="size-5" />}
+        actions={
+          <Button variant="ghost" size="sm" onClick={() => { setStatus(null); setNonce((n) => n + 1); }}>
+            Verificar
+          </Button>
+        }
+      />
+      <div className="space-y-2 p-5 text-sm">
+        {!status ? (
+          <p className="text-ink-400">Verificando…</p>
+        ) : !status.configured ? (
+          <p className="text-ink-600">
+            No configurada. Copiá <code className="rounded bg-ink-100 px-1">.env.example</code> como <code className="rounded bg-ink-100 px-1">.env.local</code>, completá la cadena de conexión y reiniciá el servidor.
+          </p>
+        ) : !status.connected ? (
+          <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
+            No se pudo conectar a {status.target}: {status.error}
+          </p>
+        ) : (
+          <>
+            <p className="flex flex-wrap items-center gap-2 text-ink-800">
+              <CheckCircle2 className="size-4 text-emerald-600" /> Conectada a <b>{status.supabase ? "Supabase" : status.target}</b>
+              <Badge tone="neutral">PostgreSQL {status.version}</Badge>
+            </p>
+            <p className="text-ink-600">
+              {status.schema_ok ? `Esquema creado: ${status.tables} tablas.` : "El esquema todavía no se creó: ejecutá npm run db:aplicar."}
+            </p>
+            {status.api_blocked === false && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">La API pública de Supabase puede leer los datos: ejecutá database/supabase-seguridad.sql.</p>
+            )}
+            {status.api_blocked === true && <p className="text-ink-600">API pública de Supabase bloqueada.</p>}
+          </>
+        )}
       </div>
     </Card>
   );

@@ -14,19 +14,19 @@ export const openOrderSchema = z.object({
 
 /** Abre un pedido para una mesa o agrupación (RF-PED-01, RF-MSA-06). */
 export function openOrder(ctx: Ctx, input: z.infer<typeof openOrderSchema>) {
-  return ctx.store.tx(() => {
-    const t = must(ctx.store.get("tables", input.tableId), "Mesa inexistente");
+  return ctx.store.tx(async () => {
+    const t = must(await ctx.store.get("tables", input.tableId), "Mesa inexistente");
     assert(t.active, "La mesa está dada de baja");
-    const members = groupTables(ctx, t);
+    const members = await groupTables(ctx, t);
     assert(members.every((m) => !m.currentOrderId), `La mesa ${t.code} ya tiene un pedido activo`);
     const waiterId = input.waiterId || ctx.user.id;
-    const waiter = must(ctx.store.get("users", waiterId), "Mozo inexistente");
+    const waiter = must(await ctx.store.get("users", waiterId), "Mozo inexistente");
     assert(waiter.active && waiter.roles.includes("MOZO"), "Debe asignarse un mozo activo como responsable");
 
     // Si la mesa está reservada para otra reserva, se exige indicar la reserva (o liberarla antes).
     const reservedFor = members.find((m) => m.status === "reservada" && m.reservationId)?.reservationId;
     if (reservedFor && input.reservationId !== reservedFor) {
-      const r = ctx.store.get("reservations", reservedFor);
+      const r = await ctx.store.get("reservations", reservedFor);
       if (r && r.status === "confirmada") {
         throw new AppError(`La mesa está reservada para ${r.customerName}. Registre la llegada desde la reserva o libere la mesa.`, 409);
       }
@@ -35,7 +35,7 @@ export function openOrder(ctx: Ctx, input: z.infer<typeof openOrderSchema>) {
     const now = nowIso(ctx);
     const order: Order = {
       id: uid(),
-      number: ctx.store.nextSeq("order"),
+      number: await ctx.store.nextSeq("order"),
       tableIds: members.map((m) => m.id),
       tableCodes: members.map((m) => m.code).join(" + "),
       sectorId: t.sectorId,
@@ -47,11 +47,11 @@ export function openOrder(ctx: Ctx, input: z.infer<typeof openOrderSchema>) {
       batches: [newBatch(1, "general", now)],
       reservationId: input.reservationId,
     };
-    ctx.store.put("orders", order);
+    await ctx.store.put("orders", order);
     for (const m of members) {
-      ctx.store.put("tables", { ...m, status: "ocupada", currentOrderId: order.id, waiterId, reservationId: input.reservationId });
+      await ctx.store.put("tables", { ...m, status: "ocupada", currentOrderId: order.id, waiterId, reservationId: input.reservationId });
     }
-    recordAssignment(ctx, members, waiterId, "asignacion");
+    await recordAssignment(ctx, order.id, members, waiterId, "asignacion");
     return order;
   });
 }
@@ -60,8 +60,8 @@ function newBatch(number: number, kind: BatchKind, now: string): Batch {
   return { id: uid(), number, kind, status: "borrador", createdAt: now, stockDeducted: false, items: [] };
 }
 
-function loadOpenOrder(ctx: Ctx, orderId: string) {
-  const o = must(ctx.store.get("orders", orderId), "Pedido inexistente");
+async function loadOpenOrder(ctx: Ctx, orderId: string) {
+  const o = must(await ctx.store.get("orders", orderId), "Pedido inexistente");
   assert(o.status === "abierto" || o.status === "listo", "El pedido ya fue cerrado");
   return o;
 }
@@ -87,48 +87,48 @@ export function recomputeOrder(ctx: Ctx, o: Order): Order {
   return o;
 }
 
-function save(ctx: Ctx, o: Order) {
+async function save(ctx: Ctx, o: Order) {
   const next = recomputeOrder(ctx, o);
-  ctx.store.put("orders", next);
+  await ctx.store.put("orders", next);
   return next;
 }
 
 /** Crea una nueva tanda (RF-PED-02, RF-PED-07). Sólo puede existir un borrador a la vez. */
 export function createBatch(ctx: Ctx, input: { orderId: string; kind: BatchKind }) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     const draft = draftBatch(o);
     if (draft) {
       if (draft.kind !== input.kind) {
         draft.kind = input.kind;
-        save(ctx, o);
+        await save(ctx, o);
       }
       return draft;
     }
     const b = newBatch(o.batches.length + 1, input.kind, nowIso(ctx));
     o.batches.push(b);
-    save(ctx, o);
+    await save(ctx, o);
     return b;
   });
 }
 
 export function setBatchKind(ctx: Ctx, input: { orderId: string; batchId: string; kind: BatchKind }) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     const b = findBatch(o, input.batchId);
     assert(b.status === "borrador", "Sólo se puede cambiar el tipo de una tanda no enviada");
     b.kind = input.kind;
-    save(ctx, o);
+    await save(ctx, o);
   });
 }
 
 /** Cantidad total de cada insumo unitario requerida por los ítems activos de una tanda. */
-function batchRequirements(ctx: Ctx, b: Batch) {
+async function batchRequirements(ctx: Ctx, b: Batch) {
   const total = new Map<string, number>();
   for (const i of activeItems(b)) {
-    const p = ctx.store.get("products", i.productId);
+    const p = await ctx.store.get("products", i.productId);
     if (!p) continue;
-    for (const [k, v] of unitRequirements(ctx, p, i.qty)) total.set(k, (total.get(k) ?? 0) + v);
+    for (const [k, v] of await unitRequirements(ctx, p, i.qty)) total.set(k, (total.get(k) ?? 0) + v);
   }
   return total;
 }
@@ -143,11 +143,11 @@ export const addItemSchema = z.object({
 
 /** Agrega un producto registrado a la tanda en borrador, validando stock (RF-PED-02/03, RF-STK-11). */
 export function addItem(ctx: Ctx, input: z.infer<typeof addItemSchema>) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     const b = findBatch(o, input.batchId);
     assert(b.status === "borrador", "La tanda ya fue enviada a cocina. Cree una nueva tanda.");
-    const p = must(ctx.store.get("products", input.productId), "El producto no está registrado en el catálogo");
+    const p = must(await ctx.store.get("products", input.productId), "El producto no está registrado en el catálogo");
     assert(p.active && p.available, `"${p.name}" no está disponible`);
 
     const item: OrderItem = {
@@ -162,8 +162,8 @@ export function addItem(ctx: Ctx, input: z.infer<typeof addItemSchema>) {
       createdAt: nowIso(ctx),
     };
     b.items.push(item);
-    checkStock(ctx, batchRequirements(ctx, b), p.name);
-    save(ctx, o);
+    await checkStock(ctx, await batchRequirements(ctx, b), p.name);
+    await save(ctx, o);
     return item;
   });
 }
@@ -178,61 +178,61 @@ export const updateItemSchema = z.object({
 
 /** Edita cantidad/observaciones de un ítem mientras su tanda no esté lista (RF-PED-05). */
 export function updateItem(ctx: Ctx, input: z.infer<typeof updateItemSchema>) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     const { batch, item } = findItem(o, input.itemId);
     assert(item.status === "activo", "El ítem está cancelado");
     assert(batch.status !== "listo", "La tanda ya está lista: no se puede modificar el ítem");
     if (batch.status === "pendiente") {
       assert(input.kitchenConfirmed, "La tanda ya está en cocina: confirme con cocina que el cambio todavía es posible.");
     }
-    const p = ctx.store.get("products", item.productId);
+    const p = await ctx.store.get("products", item.productId);
     const delta = input.qty - item.qty;
     item.notes = input.notes.trim();
     item.qty = input.qty;
 
     if (batch.status === "borrador") {
-      if (delta > 0 && p) checkStock(ctx, batchRequirements(ctx, batch), p.name);
+      if (delta > 0 && p) await checkStock(ctx, await batchRequirements(ctx, batch), p.name);
     } else if (batch.stockDeducted && delta !== 0 && p) {
-      const req = unitRequirements(ctx, p, Math.abs(delta));
-      if (delta > 0) checkStock(ctx, req, p.name);
+      const req = await unitRequirements(ctx, p, Math.abs(delta));
+      if (delta > 0) await checkStock(ctx, req, p.name);
       for (const [supplyId, qty] of req) {
-        applyStockChange(
-          ctx,
-          supplyId,
-          delta > 0 ? -qty : qty,
-          delta > 0 ? "venta" : "anulacion",
-          `Modificación de ítem autorizada por cocina — pedido #${o.number}, ${item.productName}`,
-          o.id,
-        );
+        await applyStockChange(
+                    ctx,
+                    supplyId,
+                    delta > 0 ? -qty : qty,
+                    delta > 0 ? "venta" : "anulacion",
+                    `Modificación de ítem autorizada por cocina — pedido #${o.number}, ${item.productName}`,
+                    o.id,
+                  );
       }
     }
     if (batch.status === "pendiente") {
-      audit(ctx, "Modificación de ítem en cocina", "pedido", `#${o.number} ${item.productName}: cant. ${item.qty - delta}→${item.qty}`, o.id);
+      await audit(ctx, "Modificación de ítem en cocina", "pedido", `#${o.number} ${item.productName}: cant. ${item.qty - delta}→${item.qty}`, o.id);
     }
-    save(ctx, o);
+    await save(ctx, o);
     return item;
   });
 }
 
 /** Cancela un ítem mientras su tanda no esté lista (RF-PED-06) y reintegra stock si corresponde (RF-STK-03). */
 export function cancelItem(ctx: Ctx, input: { orderId: string; itemId: string; kitchenConfirmed?: boolean; reason?: string }) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     const { batch, item } = findItem(o, input.itemId);
     assert(item.status === "activo", "El ítem ya estaba cancelado");
     assert(batch.status !== "listo", "La tanda ya está lista: no se puede cancelar el ítem");
     if (batch.status === "borrador") {
       batch.items = batch.items.filter((i) => i.id !== item.id);
-      save(ctx, o);
+      await save(ctx, o);
       return;
     }
     assert(input.kitchenConfirmed, "La tanda ya está en cocina: confirme con cocina que la cancelación todavía es posible.");
     item.status = "cancelado";
-    const p = ctx.store.get("products", item.productId);
+    const p = await ctx.store.get("products", item.productId);
     if (batch.stockDeducted && p) {
-      for (const [supplyId, qty] of unitRequirements(ctx, p, item.qty)) {
-        applyStockChange(ctx, supplyId, qty, "anulacion", `Cancelación autorizada por cocina — pedido #${o.number}, ${item.productName}`, o.id);
+      for (const [supplyId, qty] of await unitRequirements(ctx, p, item.qty)) {
+        await applyStockChange(ctx, supplyId, qty, "anulacion", `Cancelación autorizada por cocina — pedido #${o.number}, ${item.productName}`, o.id);
       }
     }
     // Si la tanda quedó sin ítems pendientes de preparar, se considera lista.
@@ -240,22 +240,22 @@ export function cancelItem(ctx: Ctx, input: { orderId: string; itemId: string; k
       batch.status = "listo";
       batch.readyAt = nowIso(ctx);
     }
-    audit(ctx, "Cancelación de ítem", "pedido", `#${o.number} ${item.qty}× ${item.productName}${input.reason ? ` — ${input.reason}` : ""}`, o.id);
-    save(ctx, o);
+    await audit(ctx, "Cancelación de ítem", "pedido", `#${o.number} ${item.qty}× ${item.productName}${input.reason ? ` — ${input.reason}` : ""}`, o.id);
+    await save(ctx, o);
   });
 }
 
 /** Envía una tanda a cocina: revalida y descuenta stock en forma transaccional (RF-PED-02, RF-STK-03/04/11). */
 export function sendBatch(ctx: Ctx, input: { orderId: string; batchId: string }) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     const b = findBatch(o, input.batchId);
     assert(b.status === "borrador", "La tanda ya fue enviada");
     assert(activeItems(b).length > 0, "La tanda no tiene productos");
-    const req = batchRequirements(ctx, b);
-    checkStock(ctx, req);
+    const req = await batchRequirements(ctx, b);
+    await checkStock(ctx, req);
     for (const [supplyId, qty] of req) {
-      applyStockChange(ctx, supplyId, -qty, "venta", `Pedido #${o.number} — tanda ${b.number} (${o.tableCodes})`, o.id);
+      await applyStockChange(ctx, supplyId, -qty, "venta", `Pedido #${o.number} — tanda ${b.number} (${o.tableCodes})`, o.id);
     }
     b.stockDeducted = true;
     b.status = "pendiente";
@@ -266,36 +266,36 @@ export function sendBatch(ctx: Ctx, input: { orderId: string; batchId: string })
 
 /** Cancela un pedido sin tandas enviadas (apertura por error) y libera la mesa. */
 export function cancelOrder(ctx: Ctx, input: { orderId: string; reason: string }) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     assert(o.batches.every((b) => b.status === "borrador"), "El pedido tiene tandas enviadas a cocina: no puede anularse.");
-    ctx.store.put("orders", { ...o, status: "cancelado", closedAt: nowIso(ctx) });
+    await ctx.store.put("orders", { ...o, status: "cancelado", closedAt: nowIso(ctx), cancelReason: input.reason });
     for (const id of o.tableIds) {
-      const t = ctx.store.get("tables", id);
+      const t = await ctx.store.get("tables", id);
       if (t && t.currentOrderId === o.id) {
-        ctx.store.put("tables", { ...t, status: "libre", currentOrderId: undefined, waiterId: undefined, reservationId: undefined });
+        await ctx.store.put("tables", { ...t, status: "libre", currentOrderId: undefined, waiterId: undefined, reservationId: undefined });
       }
     }
     if (o.reservationId) {
-      const r = ctx.store.get("reservations", o.reservationId);
-      if (r && r.status === "sentada") ctx.store.put("reservations", { ...r, status: "confirmada", orderId: undefined });
+      const r = await ctx.store.get("reservations", o.reservationId);
+      if (r && r.status === "sentada") await ctx.store.put("reservations", { ...r, status: "confirmada", orderId: undefined });
     }
-    audit(ctx, "Anulación de pedido", "pedido", `#${o.number} (${o.tableCodes}) — ${input.reason}`, o.id);
+    await audit(ctx, "Anulación de pedido", "pedido", `#${o.number} (${o.tableCodes}) — ${input.reason}`, o.id);
   });
 }
 
 export function setGuests(ctx: Ctx, input: { orderId: string; guests: number }) {
-  return ctx.store.tx(() => {
-    const o = loadOpenOrder(ctx, input.orderId);
+  return ctx.store.tx(async () => {
+    const o = await loadOpenOrder(ctx, input.orderId);
     assert(input.guests >= 1, "Cantidad de comensales inválida");
-    ctx.store.put("orders", { ...o, guests: input.guests });
+    await ctx.store.put("orders", { ...o, guests: input.guests });
   });
 }
 
-export function getOrder(ctx: Ctx, id: string) {
-  const o = must(ctx.store.get("orders", id), "Pedido inexistente");
-  const waiter = ctx.store.get("users", o.waiterId);
-  const reservation = o.reservationId ? ctx.store.get("reservations", o.reservationId) : undefined;
+export async function getOrder(ctx: Ctx, id: string) {
+  const o = must(await ctx.store.get("orders", id), "Pedido inexistente");
+  const waiter = await ctx.store.get("users", o.waiterId);
+  const reservation = o.reservationId ? await ctx.store.get("reservations", o.reservationId) : undefined;
   return {
     order: o,
     waiterName: waiter ? fullName(waiter) : "—",
@@ -306,17 +306,17 @@ export function getOrder(ctx: Ctx, id: string) {
 }
 
 /** Historial y estado de pedidos por mesa (RF-PED-10). */
-export function listOrders(ctx: Ctx, input: { tableId?: string; status?: string; active?: boolean; waiterId?: string; limit?: number }) {
-  const users = new Map(ctx.store.all("users").map((u) => [u.id, fullName(u)]));
-  return ctx.store
-    .find(
-      "orders",
-      (o) =>
-        (!input.tableId || o.tableIds.includes(input.tableId)) &&
-        (!input.status || o.status === input.status) &&
-        (!input.waiterId || o.waiterId === input.waiterId) &&
-        (!input.active || o.status === "abierto" || o.status === "listo"),
-    )
+export async function listOrders(ctx: Ctx, input: { tableId?: string; status?: string; active?: boolean; waiterId?: string; limit?: number }) {
+  const users = new Map((await ctx.store.all("users")).map((u) => [u.id, fullName(u)]));
+  return (await ctx.store
+      .find(
+        "orders",
+        (o) =>
+          (!input.tableId || o.tableIds.includes(input.tableId)) &&
+          (!input.status || o.status === input.status) &&
+          (!input.waiterId || o.waiterId === input.waiterId) &&
+          (!input.active || o.status === "abierto" || o.status === "listo"),
+      ))
     .sort((a, b) => b.openedAt.localeCompare(a.openedAt))
     .slice(0, input.limit ?? 200)
     .map((o) => ({

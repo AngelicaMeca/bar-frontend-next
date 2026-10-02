@@ -11,7 +11,7 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
-    const result = login(getStore(), { ...input, userAgent: request.headers.get("user-agent") ?? "" });
+    const result = await login(await getStore(), { ...input, userAgent: request.headers.get("user-agent") ?? "" });
     if ("error" in result && result.error) throw result.error;
     if (!("token" in result)) throw new Error("login");
     const jar = await cookies();

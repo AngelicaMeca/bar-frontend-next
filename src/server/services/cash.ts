@@ -4,8 +4,8 @@ import { activeItems, delayedBatches, saleTotals } from "@/lib/calc";
 import { fmtMoney, round2 } from "@/lib/format";
 import { assert, audit, type Ctx, fullName, getConfig, MANAGERS, must, notify, nowIso, uid } from "../core";
 
-export function currentShift(ctx: Ctx): CashShift | undefined {
-  return ctx.store.find("shifts", (s) => s.status === "abierta")[0];
+export async function currentShift(ctx: Ctx): Promise<CashShift | undefined> {
+  return (await ctx.store.find("shifts", (s) => s.status === "abierta"))[0];
 }
 
 export const openShiftSchema = z.object({
@@ -15,8 +15,8 @@ export const openShiftSchema = z.object({
 
 /** Apertura de caja por turno (RF-CAJ-01). */
 export function openShift(ctx: Ctx, input: z.infer<typeof openShiftSchema>) {
-  return ctx.store.tx(() => {
-    assert(!currentShift(ctx), "Ya hay una caja abierta. Ciérrela antes de abrir otro turno.");
+  return ctx.store.tx(async () => {
+    assert(!await currentShift(ctx), "Ya hay una caja abierta. Ciérrela antes de abrir otro turno.");
     const shift: CashShift = {
       id: uid(),
       name: input.name,
@@ -26,18 +26,18 @@ export function openShift(ctx: Ctx, input: z.infer<typeof openShiftSchema>) {
       openedByName: fullName(ctx.user),
       openingAmount: input.openingAmount,
     };
-    ctx.store.put("shifts", shift);
-    audit(ctx, "Apertura de caja", "caja", `Turno ${input.name} — inicial ${fmtMoney(input.openingAmount)}`, shift.id);
+    await ctx.store.put("shifts", shift);
+    await audit(ctx, "Apertura de caja", "caja", `Turno ${input.name} — inicial ${fmtMoney(input.openingAmount)}`, shift.id);
     return shift;
   });
 }
 
 /** Totales teóricos por medio de pago de un turno (base del arqueo, RF-CAJ-08). */
-export function shiftSummary(ctx: Ctx, shiftId: string) {
-  const shift = must(ctx.store.get("shifts", shiftId), "Turno inexistente");
-  const cfg = getConfig(ctx.store);
-  const sales = ctx.store.find("sales", (s) => s.shiftId === shiftId);
-  const movements = ctx.store.find("cashMovements", (m) => m.shiftId === shiftId).sort((a, b) => b.at.localeCompare(a.at));
+export async function shiftSummary(ctx: Ctx, shiftId: string) {
+  const shift = must(await ctx.store.get("shifts", shiftId), "Turno inexistente");
+  const cfg = await getConfig(ctx.store);
+  const sales = await ctx.store.find("sales", (s) => s.shiftId === shiftId);
+  const movements = (await ctx.store.find("cashMovements", (m) => m.shiftId === shiftId)).sort((a, b) => b.at.localeCompare(a.at));
   const methods = cfg.paymentMethods;
   const cashId = methods.find((m) => m.isCash)?.id ?? "efectivo";
   const bySales: Record<string, number> = {};
@@ -77,9 +77,9 @@ export const closeShiftSchema = z.object({
 
 /** Cierre de caja con arqueo y alerta por diferencia (RF-CAJ-02/08/09). */
 export function closeShift(ctx: Ctx, input: z.infer<typeof closeShiftSchema>) {
-  return ctx.store.tx(() => {
-    const shift = must(currentShift(ctx), "No hay caja abierta");
-    const summary = shiftSummary(ctx, shift.id);
+  return ctx.store.tx(async () => {
+    const shift = must(await currentShift(ctx), "No hay caja abierta");
+    const summary = await shiftSummary(ctx, shift.id);
     const counted: Record<string, number> = {};
     for (const id of Object.keys(summary.expected)) counted[id] = round2(input.counted[id] ?? 0);
     const countedTotal = round2(Object.values(counted).reduce((a, b) => a + b, 0));
@@ -99,17 +99,17 @@ export function closeShift(ctx: Ctx, input: z.infer<typeof closeShiftSchema>) {
       toleranceExceeded: exceeded,
       notes: input.notes,
     };
-    ctx.store.put("shifts", closed);
+    await ctx.store.put("shifts", closed);
     if (exceeded) {
-      notify(ctx, {
-        roles: MANAGERS,
-        kind: "peligro",
-        title: "Diferencia de arqueo fuera de tolerancia",
-        body: `Turno ${shift.name}: diferencia ${fmtMoney(difference)} (tolerancia ${fmtMoney(summary.tolerance)}).`,
-        link: "/caja",
-      });
+      await notify(ctx, {
+                roles: MANAGERS,
+                kind: "peligro",
+                title: "Diferencia de arqueo fuera de tolerancia",
+                body: `Turno ${shift.name}: diferencia ${fmtMoney(difference)} (tolerancia ${fmtMoney(summary.tolerance)}).`,
+                link: "/caja",
+              });
     }
-    audit(ctx, "Cierre de caja", "caja", `Turno ${shift.name} — teórico ${fmtMoney(summary.expectedTotal)}, real ${fmtMoney(countedTotal)}, dif. ${fmtMoney(difference)}`, shift.id);
+    await audit(ctx, "Cierre de caja", "caja", `Turno ${shift.name} — teórico ${fmtMoney(summary.expectedTotal)}, real ${fmtMoney(countedTotal)}, dif. ${fmtMoney(difference)}`, shift.id);
     return closed;
   });
 }
@@ -123,27 +123,28 @@ export const movementSchema = z.object({
 
 /** Movimientos manuales de caja (RF-CAJ-07). */
 export function addMovement(ctx: Ctx, input: z.infer<typeof movementSchema> & { refId?: string }) {
-  return ctx.store.tx(() => {
-    const shift = must(currentShift(ctx), "No hay caja abierta");
+  return ctx.store.tx(async () => {
+    const shift = must(await currentShift(ctx), "No hay caja abierta");
     if (input.type === "egreso") {
-      const summary = shiftSummary(ctx, shift.id);
+      const summary = await shiftSummary(ctx, shift.id);
       const available = summary.expected[input.methodId] ?? 0;
       assert(input.amount <= available + 1e-9, `No hay saldo suficiente en ${input.methodId} (disponible ${fmtMoney(available)})`);
     }
     const mov = { id: uid(), shiftId: shift.id, ...input, at: nowIso(ctx), userId: ctx.user.id, userName: fullName(ctx.user) };
-    ctx.store.put("cashMovements", mov);
-    audit(ctx, `Movimiento de caja (${input.type})`, "caja", `${fmtMoney(input.amount)} — ${input.reason}`, mov.id);
+    await ctx.store.put("cashMovements", mov);
+    await audit(ctx, `Movimiento de caja (${input.type})`, "caja", `${fmtMoney(input.amount)} — ${input.reason}`, mov.id);
     return mov;
   });
 }
 
 /** Pedidos en condiciones de cobro y en curso. */
-export function chargeableOrders(ctx: Ctx) {
-  const users = new Map(ctx.store.all("users").map((u) => [u.id, fullName(u)]));
-  return ctx.store
-    .find("orders", (o) => o.status === "listo" || o.status === "abierto")
+export async function chargeableOrders(ctx: Ctx) {
+  const users = new Map((await ctx.store.all("users")).map((u) => [u.id, fullName(u)]));
+  const reservations = new Map((await ctx.store.all("reservations")).map((r) => [r.id, r]));
+  return (await ctx.store
+      .find("orders", (o) => o.status === "listo" || o.status === "abierto"))
     .map((o) => {
-      const r = o.reservationId ? ctx.store.get("reservations", o.reservationId) : undefined;
+      const r = o.reservationId ? reservations.get(o.reservationId) : undefined;
       const subtotal = round2(o.batches.reduce((s, b) => s + activeItems(b).reduce((x, i) => x + i.qty * i.unitPrice, 0), 0));
       return {
         id: o.id,
@@ -172,12 +173,12 @@ export const chargeSchema = z.object({
 
 /** Cobro con medios de pago combinados, descuentos y seña (RF-CAJ-03/04/05/06, RF-RES-01.2). */
 export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
-  return ctx.store.tx(() => {
-    const shift = must(currentShift(ctx), "No hay un turno de caja abierto. Pedile al encargado que abra la caja para poder cobrar.");
-    const o = must(ctx.store.get("orders", input.orderId), "Pedido inexistente");
+  return ctx.store.tx(async () => {
+    const shift = must(await currentShift(ctx), "No hay un turno de caja abierto. Pedile al encargado que abra la caja para poder cobrar.");
+    const o = must(await ctx.store.get("orders", input.orderId), "Pedido inexistente");
     assert(o.status !== "cobrado", "El pedido ya fue cobrado");
     assert(o.status === "listo", "El pedido todavía no está listo: hay tandas pendientes en cocina o sin enviar");
-    const cfg = getConfig(ctx.store);
+    const cfg = await getConfig(ctx.store);
     const methods = new Map(cfg.paymentMethods.map((m) => [m.id, m]));
     for (const p of input.payments) {
       const m = methods.get(p.methodId);
@@ -187,7 +188,7 @@ export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
       assert(input.discount.kind !== "porcentaje" || input.discount.value <= 100, "El porcentaje de descuento no puede superar 100%");
     }
 
-    const products = new Map(ctx.store.all("products").map((p) => [p.id, p]));
+    const products = new Map((await ctx.store.all("products")).map((p) => [p.id, p]));
     const lineMap = new Map<string, SaleLine>();
     for (const b of o.batches) {
       if (b.status === "borrador") continue;
@@ -211,7 +212,7 @@ export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
     }
     const lines = [...lineMap.values()];
     const subtotal = round2(lines.reduce((s, l) => s + l.total, 0));
-    const reservation = o.reservationId ? ctx.store.get("reservations", o.reservationId) : undefined;
+    const reservation = o.reservationId ? await ctx.store.get("reservations", o.reservationId) : undefined;
     const depositAvailable = reservation?.deposit?.status === "cobrada" ? reservation.deposit.amount : 0;
     const totals = saleTotals(subtotal, input.discount, depositAvailable);
 
@@ -226,7 +227,7 @@ export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
 
     const sale: Sale = {
       id: uid(),
-      number: ctx.store.nextSeq("sale"),
+      number: await ctx.store.nextSeq("sale"),
       orderId: o.id,
       orderNumber: o.number,
       shiftId: shift.id,
@@ -248,37 +249,37 @@ export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
       payments: input.payments.map((p) => ({ ...p, methodName: methods.get(p.methodId)!.name })),
       change,
     };
-    ctx.store.put("sales", sale);
-    ctx.store.put("orders", { ...o, status: "cobrado", closedAt: sale.at, saleId: sale.id });
+    await ctx.store.put("sales", sale);
+    await ctx.store.put("orders", { ...o, status: "cobrado", closedAt: sale.at, saleId: sale.id });
 
     // La mesa se libera recién al confirmarse el cobro (RF-PED-11).
     for (const id of o.tableIds) {
-      const t = ctx.store.get("tables", id);
+      const t = await ctx.store.get("tables", id);
       if (t && t.currentOrderId === o.id) {
-        ctx.store.put("tables", { ...t, status: "libre", currentOrderId: undefined, waiterId: undefined, reservationId: undefined });
+        await ctx.store.put("tables", { ...t, status: "libre", currentOrderId: undefined, waiterId: undefined, reservationId: undefined });
       }
     }
     if (reservation) {
-      ctx.store.put("reservations", {
-        ...reservation,
-        status: "cumplida",
-        deposit: reservation.deposit ? { ...reservation.deposit, status: reservation.deposit.status === "cobrada" ? "aplicada" : reservation.deposit.status } : undefined,
-      });
+      await ctx.store.put("reservations", {
+                ...reservation,
+                status: "cumplida",
+                deposit: reservation.deposit ? { ...reservation.deposit, status: reservation.deposit.status === "cobrada" ? "aplicada" : reservation.deposit.status } : undefined,
+              });
     }
-    audit(ctx, "Cobro", "venta", `Comprobante #${sale.number} — pedido #${o.number} (${o.tableCodes}) ${fmtMoney(sale.total)}${sale.discount ? `, desc. ${fmtMoney(sale.discount.amount)}` : ""}`, sale.id);
+    await audit(ctx, "Cobro", "venta", `Comprobante #${sale.number} — pedido #${o.number} (${o.tableCodes}) ${fmtMoney(sale.total)}${sale.discount ? `, desc. ${fmtMoney(sale.discount.amount)}` : ""}`, sale.id);
     return sale;
   });
 }
 
-export function getSale(ctx: Ctx, id: string) {
-  const sale = must(ctx.store.get("sales", id), "Comprobante inexistente");
-  const waiter = ctx.store.get("users", sale.waiterId);
-  return { sale, waiterName: waiter ? fullName(waiter) : "—", barName: getConfig(ctx.store).barName };
+export async function getSale(ctx: Ctx, id: string) {
+  const sale = must(await ctx.store.get("sales", id), "Comprobante inexistente");
+  const waiter = await ctx.store.get("users", sale.waiterId);
+  return { sale, waiterName: waiter ? fullName(waiter) : "—", barName: (await getConfig(ctx.store)).barName };
 }
 
-export function listShifts(ctx: Ctx, input: { limit?: number } = {}) {
-  return ctx.store
-    .all("shifts")
+export async function listShifts(ctx: Ctx, input: { limit?: number } = {}) {
+  return (await ctx.store
+      .all("shifts"))
     .sort((a, b) => b.openedAt.localeCompare(a.openedAt))
     .slice(0, input.limit ?? 60);
 }

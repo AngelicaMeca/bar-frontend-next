@@ -53,8 +53,8 @@ function saleAmount(s: Sale, r: RangeInput) {
   );
 }
 
-export function salesSummary(ctx: Ctx, r: RangeInput) {
-  const sales = filteredSales(ctx, r).filter((s) => saleAmount(s, r) > 0);
+export async function salesSummary(ctx: Ctx, r: RangeInput) {
+  const sales = (await filteredSales(ctx, r)).filter((s) => saleAmount(s, r) > 0);
   const revenue = round2(sales.reduce((a, s) => a + saleAmount(s, r), 0));
   const guests = sales.reduce((a, s) => a + s.guests, 0);
   const units = sales.reduce(
@@ -73,9 +73,9 @@ export function salesSummary(ctx: Ctx, r: RangeInput) {
 }
 
 /** Reporte de ventas por período, filtrable por producto/categoría (RF-REP-01, RF-REP-10). */
-export function salesReport(ctx: Ctx, r: RangeInput) {
-  const sales = filteredSales(ctx, r);
-  const categories = new Map(ctx.store.all("categories").map((c) => [c.id, c.name]));
+export async function salesReport(ctx: Ctx, r: RangeInput) {
+  const sales = await filteredSales(ctx, r);
+  const categories = new Map((await ctx.store.all("categories")).map((c) => [c.id, c.name]));
   const series = new Map(periodKeys(r).map((k) => [k, { period: k, revenue: 0, tickets: 0 }]));
   const byCategory = new Map<string, { name: string; qty: number; revenue: number }>();
   const byProduct = new Map<string, { name: string; category: string; qty: number; revenue: number }>();
@@ -106,7 +106,7 @@ export function salesReport(ctx: Ctx, r: RangeInput) {
     }
   }
   return {
-    summary: salesSummary(ctx, r),
+    summary: await salesSummary(ctx, r),
     series: [...series.values()].sort((a, b) => a.period.localeCompare(b.period)),
     byCategory: [...byCategory.values()].sort((a, b) => b.revenue - a.revenue),
     byProduct: [...byProduct.values()].sort((a, b) => b.revenue - a.revenue),
@@ -115,9 +115,9 @@ export function salesReport(ctx: Ctx, r: RangeInput) {
 }
 
 /** Comparación entre dos períodos con filtros combinados (RF-REP-10). */
-export function comparePeriods(ctx: Ctx, input: { a: RangeInput; b: RangeInput }) {
-  const a = salesReport(ctx, input.a);
-  const b = salesReport(ctx, input.b);
+export async function comparePeriods(ctx: Ctx, input: { a: RangeInput; b: RangeInput }) {
+  const a = await salesReport(ctx, input.a);
+  const b = await salesReport(ctx, input.b);
   const pct = (x: number, y: number) => (y ? round2(((x - y) / y) * 100) : null);
   const keys = ["revenue", "tickets", "avgTicket", "guests", "avgPerGuest", "units", "discounts"] as const;
   return {
@@ -130,15 +130,15 @@ export function comparePeriods(ctx: Ctx, input: { a: RangeInput; b: RangeInput }
 }
 
 /** Ranking de productos más vendidos (RF-REP-02). */
-export function productRanking(ctx: Ctx, r: RangeInput) {
-  return salesReport(ctx, r).byProduct.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
+export async function productRanking(ctx: Ctx, r: RangeInput) {
+  return (await salesReport(ctx, r)).byProduct.sort((a, b) => b.qty - a.qty || b.revenue - a.revenue);
 }
 
 /** Consumo de stock: ingresado vs utilizado (RF-REP-03). */
-export function stockConsumption(ctx: Ctx, r: RangeInput) {
-  const supplies = new Map(ctx.store.all("supplies").map((s) => [s.id, s]));
+export async function stockConsumption(ctx: Ctx, r: RangeInput) {
+  const supplies = new Map((await ctx.store.all("supplies")).map((s) => [s.id, s]));
   const rows = new Map<string, { supplyId: string; name: string; unit: string; type: string; inPurchase: number; outSales: number; returns: number; adjustments: number; counts: number; stock: number }>();
-  for (const m of ctx.store.find("stockMovements", (x) => inRange(x.at, r))) {
+  for (const m of await ctx.store.find("stockMovements", (x) => inRange(x.at, r))) {
     const s = supplies.get(m.supplyId);
     const row = rows.get(m.supplyId) ?? {
       supplyId: m.supplyId,
@@ -165,9 +165,9 @@ export function stockConsumption(ctx: Ctx, r: RangeInput) {
 }
 
 /** Histórico de arqueos (RF-REP-04). */
-export function cashReport(ctx: Ctx, r: RangeInput) {
-  return ctx.store
-    .find("shifts", (s) => s.status === "cerrada" && inRange(s.openedAt, r))
+export async function cashReport(ctx: Ctx, r: RangeInput) {
+  return (await ctx.store
+      .find("shifts", (s) => s.status === "cerrada" && inRange(s.openedAt, r)))
     .sort((a, b) => b.openedAt.localeCompare(a.openedAt))
     .map((s) => ({
       id: s.id,
@@ -184,11 +184,11 @@ export function cashReport(ctx: Ctx, r: RangeInput) {
 }
 
 /** Desempeño por mozo (RF-REP-05). */
-export function waiterReport(ctx: Ctx, r: RangeInput) {
-  const users = new Map(ctx.store.all("users").map((u) => [u.id, fullName(u)]));
-  const sales = new Map(ctx.store.all("sales").map((s) => [s.orderId, s]));
+export async function waiterReport(ctx: Ctx, r: RangeInput) {
+  const users = new Map((await ctx.store.all("users")).map((u) => [u.id, fullName(u)]));
+  const sales = new Map((await ctx.store.all("sales")).map((s) => [s.orderId, s]));
   const rows = new Map<string, { waiterId: string; name: string; orders: number; minutes: number; revenue: number; guests: number }>();
-  for (const o of ctx.store.find("orders", (x) => x.status === "cobrado" && inRange(x.closedAt, r) && (!r.sectorId || x.sectorId === r.sectorId))) {
+  for (const o of await ctx.store.find("orders", (x) => x.status === "cobrado" && inRange(x.closedAt, r) && (!r.sectorId || x.sectorId === r.sectorId))) {
     if (r.waiterId && o.waiterId !== r.waiterId) continue;
     const row = rows.get(o.waiterId) ?? { waiterId: o.waiterId, name: users.get(o.waiterId) ?? "—", orders: 0, minutes: 0, revenue: 0, guests: 0 };
     row.orders++;
@@ -203,10 +203,10 @@ export function waiterReport(ctx: Ctx, r: RangeInput) {
 }
 
 /** Tiempos de cocina por tipo de tanda (RF-REP-06). */
-export function kitchenReport(ctx: Ctx, r: RangeInput) {
+export async function kitchenReport(ctx: Ctx, r: RangeInput) {
   const byKind = new Map<string, { kind: string; label: string; count: number; total: number; min: number; max: number }>();
   const series = new Map<string, { period: string; count: number; total: number }>();
-  for (const o of ctx.store.all("orders")) {
+  for (const o of await ctx.store.all("orders")) {
     if (r.sectorId && o.sectorId !== r.sectorId) continue;
     for (const b of o.batches) {
       if (b.status !== "listo" || !b.sentAt || !b.readyAt || !inRange(b.readyAt, r) || activeItems(b).length === 0) continue;
@@ -235,9 +235,9 @@ export function kitchenReport(ctx: Ctx, r: RangeInput) {
 }
 
 /** Reservas por período: ocupación y no-shows (RF-REP-07). */
-export function reservationReport(ctx: Ctx, r: RangeInput) {
-  const tables = new Map(ctx.store.all("tables").map((t) => [t.id, t]));
-  const list = ctx.store.find("reservations", (x) => inRange(x.at, r));
+export async function reservationReport(ctx: Ctx, r: RangeInput) {
+  const tables = new Map((await ctx.store.all("tables")).map((t) => [t.id, t]));
+  const list = await ctx.store.find("reservations", (x) => inRange(x.at, r));
   const count = (st: string) => list.filter((x) => x.status === st).length;
   const honoredList = list.filter((x) => x.status === "cumplida" || x.status === "sentada");
   const reservedSeats = honoredList.reduce((a, x) => a + x.tableIds.reduce((s, id) => s + (tables.get(id)?.capacity ?? 0), 0), 0);
@@ -269,13 +269,13 @@ export function reservationReport(ctx: Ctx, r: RangeInput) {
 }
 
 /** Dashboard de KPIs (RF-REP-08). */
-export function dashboard(ctx: Ctx) {
+export async function dashboard(ctx: Ctx) {
   const today = dayKey(ctx.now());
   const r7: RangeInput = { from: addDays(today, -6), to: today, groupBy: "dia" };
   const r14: RangeInput = { from: addDays(today, -13), to: today, groupBy: "dia" };
   const todayRange: RangeInput = { from: today, to: today, groupBy: "dia" };
-  const todaySales = filteredSales(ctx, todayRange);
-  const shifts = new Map(ctx.store.all("shifts").map((s) => [s.id, s.name]));
+  const todaySales = await filteredSales(ctx, todayRange);
+  const shifts = new Map((await ctx.store.all("shifts")).map((s) => [s.id, s.name]));
   const byShift = new Map<string, number>();
   for (const s of todaySales) {
     const n = shifts.get(s.shiftId) ?? "—";
@@ -283,11 +283,11 @@ export function dashboard(ctx: Ctx) {
   }
 
   // Rotación de insumos críticos: consumo diario promedio (7 días) y días de cobertura.
-  const moves7 = ctx.store.find("stockMovements", (m) => inRange(m.at, r7) && (m.type === "venta" || (m.type === "conteo" && m.qty < 0)));
+  const moves7 = await ctx.store.find("stockMovements", (m) => inRange(m.at, r7) && (m.type === "venta" || (m.type === "conteo" && m.qty < 0)));
   const consumption = new Map<string, number>();
   for (const m of moves7) consumption.set(m.supplyId, (consumption.get(m.supplyId) ?? 0) - m.qty);
-  const critical = ctx.store
-    .find("supplies", (s) => s.active && s.stock <= s.minStock * 1.5)
+  const critical = (await ctx.store
+      .find("supplies", (s) => s.active && s.stock <= s.minStock * 1.5))
     .map((s) => {
       const daily = round2((consumption.get(s.id) ?? 0) / 7);
       return { id: s.id, name: s.name, unit: s.unit, stock: s.stock, minStock: s.minStock, daily, coverageDays: daily > 0 ? round2(s.stock / daily) : null, low: s.stock <= s.minStock };
@@ -295,20 +295,20 @@ export function dashboard(ctx: Ctx) {
     .sort((a, b) => (a.coverageDays ?? 999) - (b.coverageDays ?? 999))
     .slice(0, 8);
 
-  const tables = ctx.store.find("tables", (t) => t.active);
-  const openOrders = ctx.store.find("orders", (o) => o.status === "abierto" || o.status === "listo");
+  const tables = await ctx.store.find("tables", (t) => t.active);
+  const openOrders = await ctx.store.find("orders", (o) => o.status === "abierto" || o.status === "listo");
   const pendingBatches = openOrders.reduce((a, o) => a + o.batches.filter((b) => b.status === "pendiente" && activeItems(b).length > 0).length, 0);
-  const kToday = kitchenReport(ctx, todayRange);
-  const k7 = kitchenReport(ctx, r7);
-  const todayRes = ctx.store.find("reservations", (x) => dayKey(x.at) === today && x.status !== "cancelada");
-  const cfg = getConfig(ctx.store);
+  const kToday = await kitchenReport(ctx, todayRange);
+  const k7 = await kitchenReport(ctx, r7);
+  const todayRes = await ctx.store.find("reservations", (x) => dayKey(x.at) === today && x.status !== "cancelada");
+  const cfg = await getConfig(ctx.store);
 
   return {
-    today: salesSummary(ctx, todayRange),
-    week: salesSummary(ctx, r7),
+    today: await salesSummary(ctx, todayRange),
+    week: await salesSummary(ctx, r7),
     byShift: [...byShift.entries()].map(([name, revenue]) => ({ name, revenue })),
-    series: salesReport(ctx, r14).series,
-    topProducts: productRanking(ctx, r7).slice(0, 6),
+    series: (await salesReport(ctx, r14)).series,
+    topProducts: (await productRanking(ctx, r7)).slice(0, 6),
     critical,
     occupancy: {
       total: tables.length,

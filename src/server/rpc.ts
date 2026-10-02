@@ -32,19 +32,19 @@ const id = z.object({ id: z.string() });
 const range = reports.rangeSchema;
 
 /** Vista consolidada del salón para el plano (RF-MSA-05, RF-MSA-13). */
-function floorState(ctx: Ctx) {
-  const cfg = getConfig(ctx.store);
-  const users = new Map(ctx.store.all("users").map((u) => [u.id, fullName(u)]));
-  const openOrders = ctx.store.find("orders", (o) => o.status === "abierto" || o.status === "listo");
+async function floorState(ctx: Ctx) {
+  const cfg = await getConfig(ctx.store);
+  const users = new Map((await ctx.store.all("users")).map((u) => [u.id, fullName(u)]));
+  const openOrders = await ctx.store.find("orders", (o) => o.status === "abierto" || o.status === "listo");
   const now = ctx.now().getTime();
-  const upcoming = ctx.store.find(
-    "reservations",
-    (r) => r.status === "confirmada" && new Date(r.at).getTime() > now - 3600_000 && new Date(r.at).getTime() < now + 24 * 3600_000,
-  );
+  const upcoming = await ctx.store.find(
+      "reservations",
+      (r) => r.status === "confirmada" && new Date(r.at).getTime() > now - 3600_000 && new Date(r.at).getTime() < now + 24 * 3600_000,
+    );
   return {
-    sectors: tables.listSectors(ctx),
-    tables: tables.listTables(ctx).map((t) => ({ ...t, waiterName: t.waiterId ? users.get(t.waiterId) : undefined })),
-    groups: ctx.store.all("groups"),
+    sectors: await tables.listSectors(ctx),
+    tables: (await tables.listTables(ctx)).map((t) => ({ ...t, waiterName: t.waiterId ? users.get(t.waiterId) : undefined })),
+    groups: await ctx.store.all("groups"),
     orders: openOrders.map((o) => ({
       id: o.id,
       number: o.number,
@@ -111,7 +111,7 @@ export const procedures = {
   "orders.sendBatch": proc("pedidos.operar", z.object({ orderId: z.string(), batchId: z.string() }), (ctx, i) => orders.sendBatch(ctx, i)),
   "orders.cancel": proc("pedidos.operar", z.object({ orderId: z.string(), reason: z.string().min(3, "Indique el motivo") }), (ctx, i) => orders.cancelOrder(ctx, i)),
   "orders.setGuests": proc("pedidos.operar", z.object({ orderId: z.string(), guests: z.number().int() }), (ctx, i) => orders.setGuests(ctx, i)),
-  "products.forOrder": proc("pedidos.ver", none, (ctx) => admin.listProducts(ctx).filter((p) => p.active)),
+  "products.forOrder": proc("pedidos.ver", none, async (ctx) => (await admin.listProducts(ctx)).filter((p) => p.active)),
 
   // ---------- Cocina ----------
   "kitchen.queue": proc("cocina.operar", none, (ctx) => kitchen.kitchenQueue(ctx)),
@@ -121,9 +121,9 @@ export const procedures = {
   "kitchen.ready": proc("cocina.operar", z.object({ orderId: z.string(), batchId: z.string() }), (ctx, i) => kitchen.markBatchReady(ctx, i)),
 
   // ---------- Caja ----------
-  "cash.current": proc("caja.operar", none, (ctx) => {
-    const s = cash.currentShift(ctx);
-    return s ? cash.shiftSummary(ctx, s.id) : null;
+  "cash.current": proc("caja.operar", none, async (ctx) => {
+    const s = await cash.currentShift(ctx);
+    return s ? await cash.shiftSummary(ctx, s.id) : null;
   }),
   "cash.open": proc("caja.operar", cash.openShiftSchema, (ctx, i) => cash.openShift(ctx, i)),
   "cash.close": proc("caja.operar", cash.closeShiftSchema, (ctx, i) => cash.closeShift(ctx, i)),
@@ -202,4 +202,4 @@ export const procedures = {
 export type Procedures = typeof procedures;
 export type ProcName = keyof Procedures;
 export type ProcInput<P extends ProcName> = z.input<Procedures[P]["schema"]>;
-export type ProcOutput<P extends ProcName> = ReturnType<Procedures[P]["handler"]>;
+export type ProcOutput<P extends ProcName> = Awaited<ReturnType<Procedures[P]["handler"]>>;

@@ -3,6 +3,7 @@ import path from "node:path";
 import { can } from "@/lib/permissions";
 import { AppError, audit } from "@/server/core";
 import { errorResponse, getAuth } from "@/server/app";
+import { SqliteStore } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,13 @@ export async function GET() {
   try {
     const { ctx } = await getAuth();
     if (!can(ctx.user.roles, "config.gestionar")) throw new AppError("No tiene permisos para descargar respaldos", 403);
+    if (!(ctx.store instanceof SqliteStore)) {
+      throw new AppError("Con PostgreSQL/Supabase los respaldos se gestionan desde el panel de Supabase (Database → Backups) o con pg_dump.", 400);
+    }
     const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const file = path.join(process.cwd(), "data", "backups", `bar-${stamp}.db`);
     ctx.store.backup(file);
-    ctx.store.tx(() => audit(ctx, "Respaldo de base de datos", "sistema", path.basename(file)));
+    await ctx.store.tx(() => audit(ctx, "Respaldo de base de datos", "sistema", path.basename(file)));
     const data = new Uint8Array(fs.readFileSync(file));
     return new Response(data, {
       headers: {

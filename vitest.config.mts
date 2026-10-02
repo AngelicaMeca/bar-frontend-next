@@ -1,13 +1,15 @@
-﻿import path from "node:path";
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
-export default defineConfig({
+// `npm test` prueba contra SQLite; `npm run test:pg` (modo "pg") contra PostgreSQL embebido con el esquema real.
+export default defineConfig(({ mode }) => ({
   resolve: {
     alias: { "@": path.resolve(import.meta.dirname, "src") },
   },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    testTimeout: 60_000,
+    testTimeout: 120_000,
+    env: mode === "pg" ? { TEST_STORE: "pg" } : {},
   },
-});
+}));

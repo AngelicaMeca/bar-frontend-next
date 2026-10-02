@@ -2,6 +2,7 @@ import { can } from "@/lib/permissions";
 import { AppError } from "@/server/core";
 import { errorResponse, getAuth } from "@/server/app";
 import { procedures, type ProcName } from "@/server/rpc";
+import { withActor } from "@/server/store";
 
 /**
  * Punto de entrada único de la API. Cada procedimiento declara el permiso requerido y
@@ -16,8 +17,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (p.perm && !can(ctx.user.roles, p.perm)) throw new AppError("No tiene permisos para realizar esta acción", 403);
     const body = await request.json().catch(() => ({}));
     const input = p.schema.parse(body ?? {});
+    // Las operaciones se ejecutan "en nombre" del usuario (trazabilidad en PostgreSQL, RNF-09).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = (p.handler as any)(ctx, input, { sessionId });
+    const result = await withActor(ctx.user.id, async () => (p.handler as any)(ctx, input, { sessionId }));
     return Response.json({ data: result ?? null });
   } catch (e) {
     return errorResponse(e);

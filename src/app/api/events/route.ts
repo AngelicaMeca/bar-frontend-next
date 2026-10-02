@@ -13,12 +13,12 @@ export async function GET(request: Request) {
   } catch (e) {
     return errorResponse(e);
   }
-  const store = getStore();
+  const store = await getStore();
   const encoder = new TextEncoder();
   let timer: ReturnType<typeof setInterval> | undefined;
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       let last = -1;
       let ticks = 0;
       const send = (text: string) => {
@@ -28,11 +28,11 @@ export async function GET(request: Request) {
           if (timer) clearInterval(timer);
         }
       };
-      const check = () => {
+      const check = async () => {
         ticks++;
         try {
-          if (ticks % 10 === 0) runScheduler(store);
-          const v = store.version();
+          if (ticks % 10 === 0) await runScheduler(store);
+          const v = await store.version();
           if (v !== last) {
             last = v;
             send(`data: ${JSON.stringify({ version: v })}\n\n`);
@@ -44,8 +44,8 @@ export async function GET(request: Request) {
         }
       };
       send(`retry: 3000\n\n`);
-      check();
-      timer = setInterval(check, 1000);
+      await check();
+      timer = setInterval(() => void check(), 1000);
       request.signal.addEventListener("abort", () => {
         if (timer) clearInterval(timer);
         try {

@@ -18,7 +18,9 @@ npm run build
 npm start
 ```
 
-La primera vez que se inicia, el sistema crea `data/bar.db` y la carga con **~4 semanas de operación simulada** (ventas, compras, reservas, arqueos) para que los reportes tengan datos. Para volver a generarla: `npm run db:reset`.
+Sin configuración, el sistema usa SQLite embebido: la primera vez que se inicia crea `data/bar.db` y la carga con **~4 semanas de operación simulada** (ventas, compras, reservas, arqueos) para que los reportes tengan datos. Para volver a generarla: `npm run db:reset`.
+
+Para usar **PostgreSQL / Supabase**, definí `DATABASE_URL` en `.env.local` y seguí los pasos de [`database/README.md`](database/README.md#conexión-con-supabase) (`npm run db:probar`, `npm run db:aplicar`). En el primer inicio, los datos de ejemplo se importan a PostgreSQL.
 
 ### Usuarios de demostración
 
@@ -41,9 +43,12 @@ Los mozos pueden usarlo desde el celular: con el servidor de producción corrien
 |---|---|
 | `npm run dev` / `build` / `start` | Desarrollo, compilación y producción |
 | `npm test` | Pruebas automatizadas (Vitest) de Mesas, Pedidos, Cocina, Caja, Stock, Reservas y Autenticación |
+| `npm run test:pg` | Las mismas pruebas sobre PostgreSQL embebido con el esquema real |
 | `npm run lint` / `typecheck` | ESLint y chequeo de tipos |
-| `npm run backup` | Respaldo consistente de la base en `data/backups/` (también disponible en Configuración) |
+| `npm run backup` | Respaldo consistente de la base SQLite en `data/backups/` (también disponible en Configuración) |
 | `npm run db:reset` | Borra la base local; se regenera con datos de ejemplo al iniciar |
+| `npm run db:validar` | Valida el diseño relacional de [`database/schema.sql`](database/schema.sql) sobre PostgreSQL embebido |
+| `npm run db:probar` / `db:aplicar` | Prueba la conexión de `DATABASE_URL` / crea el esquema y la seguridad en Supabase |
 
 ## Arquitectura
 
@@ -58,7 +63,8 @@ src/
 │     ├─ auth/…          login / logout / solicitud de recuperación
 │     └─ backup          Descarga de respaldo
 ├─ server/
-│  ├─ store.ts           Almacén sobre SQLite con transacciones BEGIN IMMEDIATE
+│  ├─ store.ts           Interfaz DataStore + implementación SQLite (transacciones serializadas)
+│  ├─ db/                PostgreSQL: driver, PgStore, mappers por colección, importación
 │  ├─ rpc.ts             Registro de procedimientos (permiso + esquema + servicio)
 │  ├─ services/          Lógica de negocio por módulo (mesas, pedidos, cocina, caja, stock…)
 │  └─ seed.ts            Datos de ejemplo simulados con los mismos servicios
@@ -68,10 +74,14 @@ tests/                   Pruebas de los módulos críticos
 ```
 
 - **Tiempo real (RNF-11):** cada escritura incrementa una versión en la base; `/api/events` la emite por SSE y las pantallas visibles se actualizan solas. Si el canal cae, las pantallas pasan a sondeo cada 8 s (degradación controlada).
-- **Concurrencia (RF-STK-04, RNF-03):** todas las operaciones de escritura corren en transacciones SQLite serializadas; el stock se revalida y descuenta dentro de la misma transacción del envío a cocina.
+- **Concurrencia (RF-STK-04, RNF-03):** todas las operaciones de escritura corren en transacciones serializadas (en PostgreSQL, con un bloqueo de asesoramiento por transacción); el stock se revalida y descuenta dentro de la misma transacción del envío a cocina.
 - **Procesos automáticos:** mesas “reservadas” antes de la hora, no-shows, recordatorios y alertas de vencimiento se ejecutan con la actividad del sistema (cada ~20 s), sin cron externo.
 - **Seguridad (RF-AUT, RNF-04):** contraseñas con bcrypt, sesiones con token aleatorio (sólo su hash se guarda) en cookie `httpOnly`, bloqueo temporal por intentos fallidos, RBAC en la API y en la interfaz.
 - **Localización (RNF-14):** español, moneda ARS y fecha/hora de Argentina.
+
+## Base de datos
+
+Con `DATABASE_URL` definida, la app usa PostgreSQL (Supabase); sin ella, SQLite embebido. El diseño relacional, con diagramas entidad-relación, reglas de integridad y la conexión con Supabase, está en [`database/README.md`](database/README.md).
 
 ## Cobertura de requisitos
 

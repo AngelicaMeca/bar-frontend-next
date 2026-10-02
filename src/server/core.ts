@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { Config, Notification, Role, User } from "@/lib/types";
-import type { Store } from "./store";
+import type { CollectionName, Collections, DataStore } from "./store";
 
 export class AppError extends Error {
   constructor(
@@ -12,7 +12,7 @@ export class AppError extends Error {
 }
 
 export interface Ctx {
-  store: Store;
+  store: DataStore;
   user: User;
   now: () => Date;
 }
@@ -28,6 +28,13 @@ export function assert(cond: unknown, message: string, status = 400): asserts co
 export function must<T>(value: T | undefined | null, message: string): T {
   if (value === undefined || value === null) throw new AppError(message, 404);
   return value;
+}
+
+/** Obtiene varios documentos por id, en el mismo orden; falla si alguno no existe. */
+export async function mustGetMany<K extends CollectionName>(ctx: Ctx, col: K, ids: string[], message: string): Promise<Collections[K][]> {
+  const out: Collections[K][] = [];
+  for (const id of ids) out.push(must(await ctx.store.get(col, id), message));
+  return out;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -55,31 +62,31 @@ export const DEFAULT_CONFIG: Config = {
   ],
 };
 
-export function getConfig(store: Store): Config {
-  return { ...DEFAULT_CONFIG, ...(store.get("config", "config") ?? {}) };
+export async function getConfig(store: DataStore): Promise<Config> {
+  return { ...DEFAULT_CONFIG, ...(await store.get("config", "config") ?? {}) };
 }
 
 /** Registra una acción en la auditoría (RF-ADM-06, RNF-09). */
-export function audit(ctx: Ctx, action: string, entity: string, detail: string, entityId?: string) {
-  ctx.store.put("audit", {
-    id: uid(),
-    at: nowIso(ctx),
-    userId: ctx.user.id,
-    userName: fullName(ctx.user),
-    action,
-    entity,
-    entityId,
-    detail,
-  });
+export async function audit(ctx: Ctx, action: string, entity: string, detail: string, entityId?: string) {
+  await ctx.store.put("audit", {
+        id: uid(),
+        at: nowIso(ctx),
+        userId: ctx.user.id,
+        userName: fullName(ctx.user),
+        action,
+        entity,
+        entityId,
+        detail,
+      });
 }
 
 /** Crea una notificación interna. Con `key` se evita repetir la misma alerta. */
-export function notify(
+export async function notify(
   ctx: Ctx,
   n: { userId?: string; roles?: Role[]; kind: Notification["kind"]; title: string; body: string; link?: string; key?: string },
 ) {
-  if (n.key && ctx.store.find("notifications", (x) => x.key === n.key).length > 0) return;
-  ctx.store.put("notifications", { id: uid(), at: nowIso(ctx), readBy: [], ...n });
+  if (n.key && (await ctx.store.find("notifications", (x) => x.key === n.key)).length > 0) return;
+  await ctx.store.put("notifications", { id: uid(), at: nowIso(ctx), readBy: [], ...n });
 }
 
 export const MANAGERS: Role[] = ["SUPERVISOR", "ADMIN", "DUENO"];

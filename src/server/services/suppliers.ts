@@ -6,10 +6,10 @@ import { assert, audit, type Ctx, fullName, must, nowIso, uid } from "../core";
 import { applyStockChange } from "./stock";
 
 export const supplierSchema = z.object({
-  name: z.string().trim().min(2, "Indique la razón social"),
-  cuit: z.string().trim().default(""),
+  name: z.string().trim().min(2, "Indique la razón social").max(120),
+  cuit: z.string().trim().regex(/^(d{2}-d{8}-d)?$/, "CUIT inválido (formato 30-12345678-9)").default(""),
   contact: z.string().trim().default(""),
-  phone: z.string().trim().min(6, "Indique un teléfono válido"),
+  phone: z.string().trim().min(6, "Indique un teléfono válido").max(30),
   email: z.union([z.literal(""), z.email("Email inválido")]).default(""),
   address: z.string().trim().default(""),
   supplyIds: z.array(z.string()).default([]),
@@ -18,11 +18,11 @@ export const supplierSchema = z.object({
 });
 
 /** Listado y búsqueda por nombre o insumo/categoría (RF-PRV-04). */
-export function listSuppliers(ctx: Ctx, input: { q?: string; includeInactive?: boolean } = {}) {
-  const supplies = new Map(ctx.store.all("supplies").map((s) => [s.id, s]));
+export async function listSuppliers(ctx: Ctx, input: { q?: string; includeInactive?: boolean } = {}) {
+  const supplies = new Map((await ctx.store.all("supplies")).map((s) => [s.id, s]));
   const q = normalize(input.q ?? "");
-  return ctx.store
-    .all("suppliers")
+  return (await ctx.store
+      .all("suppliers"))
     .filter((s) => input.includeInactive || s.active)
     .filter((s) => {
       if (!q) return true;
@@ -34,34 +34,34 @@ export function listSuppliers(ctx: Ctx, input: { q?: string; includeInactive?: b
 }
 
 export function createSupplier(ctx: Ctx, input: z.infer<typeof supplierSchema>) {
-  return ctx.store.tx(() => {
+  return ctx.store.tx(async () => {
     const supplier: Supplier = { id: uid(), ...input, active: true, createdAt: nowIso(ctx) };
-    ctx.store.put("suppliers", supplier);
-    audit(ctx, "Alta de proveedor", "proveedor", supplier.name, supplier.id);
+    await ctx.store.put("suppliers", supplier);
+    await audit(ctx, "Alta de proveedor", "proveedor", supplier.name, supplier.id);
     return supplier;
   });
 }
 
 export function updateSupplier(ctx: Ctx, input: z.infer<typeof supplierSchema> & { id: string }) {
-  return ctx.store.tx(() => {
-    const s = must(ctx.store.get("suppliers", input.id), "Proveedor inexistente");
+  return ctx.store.tx(async () => {
+    const s = must(await ctx.store.get("suppliers", input.id), "Proveedor inexistente");
     const updated = { ...s, ...input };
-    ctx.store.put("suppliers", updated);
-    audit(ctx, "Modificación de proveedor", "proveedor", s.name, s.id);
+    await ctx.store.put("suppliers", updated);
+    await audit(ctx, "Modificación de proveedor", "proveedor", s.name, s.id);
     return updated;
   });
 }
 
 /** Baja lógica / reactivación (RF-PRV-02). */
 export function setSupplierActive(ctx: Ctx, input: { id: string; active: boolean }) {
-  return ctx.store.tx(() => {
-    const s = must(ctx.store.get("suppliers", input.id), "Proveedor inexistente");
+  return ctx.store.tx(async () => {
+    const s = must(await ctx.store.get("suppliers", input.id), "Proveedor inexistente");
     if (!input.active) {
-      const open = ctx.store.find("purchases", (p) => p.supplierId === s.id && (p.status === "pendiente" || p.status === "confirmada" || p.status === "parcial"));
+      const open = await ctx.store.find("purchases", (p) => p.supplierId === s.id && (p.status === "pendiente" || p.status === "confirmada" || p.status === "parcial"));
       assert(open.length === 0, `El proveedor tiene ${open.length} orden(es) de compra abiertas`);
     }
-    ctx.store.put("suppliers", { ...s, active: input.active });
-    audit(ctx, input.active ? "Reactivación de proveedor" : "Baja de proveedor", "proveedor", s.name, s.id);
+    await ctx.store.put("suppliers", { ...s, active: input.active });
+    await audit(ctx, input.active ? "Reactivación de proveedor" : "Baja de proveedor", "proveedor", s.name, s.id);
   });
 }
 
@@ -76,32 +76,34 @@ export const purchaseSchema = z.object({
 
 /** Registro de orden de compra (RF-PRV-05). */
 export function createPurchase(ctx: Ctx, input: z.infer<typeof purchaseSchema>) {
-  return ctx.store.tx(() => {
-    const supplier = must(ctx.store.get("suppliers", input.supplierId), "Proveedor inexistente");
+  return ctx.store.tx(async () => {
+    const supplier = must(await ctx.store.get("suppliers", input.supplierId), "Proveedor inexistente");
     assert(supplier.active, "El proveedor está inactivo");
     const ids = new Set<string>();
-    const items = input.items.map((i) => {
+    const items: PurchaseOrder["items"] = [];
+    for (const i of input.items) {
       assert(!ids.has(i.supplyId), "Hay insumos repetidos en la orden");
       ids.add(i.supplyId);
-      const s = must(ctx.store.get("supplies", i.supplyId), "Insumo inexistente");
-      return { supplyId: s.id, supplyName: s.name, unit: s.unit, qty: i.qty, unitCost: i.unitCost, receivedQty: 0 };
-    });
+      const s = must(await ctx.store.get("supplies", i.supplyId), "Insumo inexistente");
+      items.push({ supplyId: s.id, supplyName: s.name, unit: s.unit, qty: i.qty, unitCost: i.unitCost, receivedQty: 0 });
+    }
     const po: PurchaseOrder = {
       id: uid(),
-      number: ctx.store.nextSeq("purchase"),
+      number: await ctx.store.nextSeq("purchase"),
       supplierId: supplier.id,
       supplierName: supplier.name,
       status: "pendiente",
       createdAt: nowIso(ctx),
       createdBy: fullName(ctx.user),
+      createdById: ctx.user.id,
       expectedAt: input.expectedAt,
       items,
       receptions: [],
       notes: input.notes,
-      history: [{ at: nowIso(ctx), status: "pendiente", userName: fullName(ctx.user) }],
+      history: [{ at: nowIso(ctx), status: "pendiente", userId: ctx.user.id, userName: fullName(ctx.user) }],
     };
-    ctx.store.put("purchases", po);
-    audit(ctx, "Orden de compra", "compra", `OC #${po.number} a ${supplier.name} por ${purchaseTotal(po)}`, po.id);
+    await ctx.store.put("purchases", po);
+    await audit(ctx, "Orden de compra", "compra", `OC #${po.number} a ${supplier.name} por ${purchaseTotal(po)}`, po.id);
     return po;
   });
 }
@@ -110,8 +112,8 @@ export const purchaseTotal = (p: PurchaseOrder) => round2(p.items.reduce((s, i) 
 
 /** Cambio de estado: confirmar / cancelar (RF-PRV-06). */
 export function setPurchaseStatus(ctx: Ctx, input: { id: string; status: "confirmada" | "cancelada" }) {
-  return ctx.store.tx(() => {
-    const p = must(ctx.store.get("purchases", input.id), "Orden inexistente");
+  return ctx.store.tx(async () => {
+    const p = must(await ctx.store.get("purchases", input.id), "Orden inexistente");
     const allowed: Record<PurchaseStatus, PurchaseStatus[]> = {
       pendiente: ["confirmada", "cancelada"],
       confirmada: ["cancelada"],
@@ -120,9 +122,9 @@ export function setPurchaseStatus(ctx: Ctx, input: { id: string; status: "confir
       cancelada: [],
     };
     assert(allowed[p.status].includes(input.status), `No se puede pasar de "${p.status}" a "${input.status}"`);
-    const updated = { ...p, status: input.status, history: [...p.history, { at: nowIso(ctx), status: input.status, userName: fullName(ctx.user) }] };
-    ctx.store.put("purchases", updated);
-    audit(ctx, `Orden de compra ${input.status}`, "compra", `OC #${p.number} — ${p.supplierName}`, p.id);
+    const updated = { ...p, status: input.status, history: [...p.history, { at: nowIso(ctx), status: input.status, userId: ctx.user.id, userName: fullName(ctx.user) }] };
+    await ctx.store.put("purchases", updated);
+    await audit(ctx, `Orden de compra ${input.status}`, "compra", `OC #${p.number} — ${p.supplierName}`, p.id);
     return updated;
   });
 }
@@ -135,8 +137,8 @@ export const receiveSchema = z.object({
 
 /** Recepción total o parcial, con faltantes y comentarios; actualiza stock (RF-PRV-07/08). */
 export function receivePurchase(ctx: Ctx, input: z.infer<typeof receiveSchema>) {
-  return ctx.store.tx(() => {
-    const p = must(ctx.store.get("purchases", input.id), "Orden inexistente");
+  return ctx.store.tx(async () => {
+    const p = must(await ctx.store.get("purchases", input.id), "Orden inexistente");
     assert(p.status === "confirmada" || p.status === "parcial" || p.status === "pendiente", "La orden no admite recepciones en su estado actual");
     const received = input.items.filter((i) => i.qty > 0);
     assert(received.length > 0, "Indique al menos una cantidad recibida");
@@ -145,9 +147,9 @@ export function receivePurchase(ctx: Ctx, input: z.infer<typeof receiveSchema>) 
       const pending = round2(line.qty - line.receivedQty);
       assert(r.qty <= pending + 1e-9, `${line.supplyName}: se recibieron ${r.qty} pero sólo faltaban ${pending}`);
       line.receivedQty = round2(line.receivedQty + r.qty);
-      applyStockChange(ctx, line.supplyId, r.qty, "compra", `OC #${p.number} — ${p.supplierName}`, p.id);
-      const s = must(ctx.store.get("supplies", line.supplyId), "Insumo inexistente");
-      ctx.store.put("supplies", { ...s, lastCost: line.unitCost });
+      await applyStockChange(ctx, line.supplyId, r.qty, "compra", `OC #${p.number} — ${p.supplierName}`, p.id);
+      const s = must(await ctx.store.get("supplies", line.supplyId), "Insumo inexistente");
+      await ctx.store.put("supplies", { ...s, lastCost: line.unitCost });
     }
     const missing = p.items
       .filter((i) => i.receivedQty < i.qty)
@@ -165,24 +167,24 @@ export function receivePurchase(ctx: Ctx, input: z.infer<typeof receiveSchema>) 
       partial,
     });
     p.status = status;
-    p.history.push({ at: nowIso(ctx), status, userName: fullName(ctx.user) });
-    ctx.store.put("purchases", p);
-    audit(ctx, partial ? "Recepción parcial" : "Recepción total", "compra", `OC #${p.number}${partial ? ` — faltan ${missing.map((m) => `${m.qty} ${m.supplyName}`).join(", ")}` : ""}`, p.id);
+    p.history.push({ at: nowIso(ctx), status, userId: ctx.user.id, userName: fullName(ctx.user) });
+    await ctx.store.put("purchases", p);
+    await audit(ctx, partial ? "Recepción parcial" : "Recepción total", "compra", `OC #${p.number}${partial ? ` — faltan ${missing.map((m) => `${m.qty} ${m.supplyName}`).join(", ")}` : ""}`, p.id);
     return p;
   });
 }
 
-export function listPurchases(ctx: Ctx, input: { supplierId?: string; status?: string } = {}) {
-  return ctx.store
-    .find("purchases", (p) => (!input.supplierId || p.supplierId === input.supplierId) && (!input.status || p.status === input.status))
+export async function listPurchases(ctx: Ctx, input: { supplierId?: string; status?: string } = {}) {
+  return (await ctx.store
+      .find("purchases", (p) => (!input.supplierId || p.supplierId === input.supplierId) && (!input.status || p.status === input.status)))
     .sort((a, b) => b.number - a.number)
     .map((p) => ({ ...p, total: purchaseTotal(p) }));
 }
 
 /** Historial de compras por proveedor e insumo con evolución de costos (RF-PRV-09). */
-export function purchaseHistory(ctx: Ctx, input: { supplierId?: string; supplyId?: string }) {
+export async function purchaseHistory(ctx: Ctx, input: { supplierId?: string; supplyId?: string }) {
   const rows: { at: string; number: number; supplierName: string; supplyId: string; supplyName: string; unit: string; qty: number; unitCost: number; total: number; status: PurchaseStatus }[] = [];
-  for (const p of ctx.store.all("purchases")) {
+  for (const p of await ctx.store.all("purchases")) {
     if (input.supplierId && p.supplierId !== input.supplierId) continue;
     if (p.status === "cancelada") continue;
     for (const i of p.items) {

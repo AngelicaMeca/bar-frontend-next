@@ -8,7 +8,7 @@ const schema = z.object({ identifier: z.string().trim().min(3, "Ingrese su usuar
 export async function POST(request: Request) {
   try {
     const { identifier } = schema.parse(await request.json());
-    requestPasswordReset(getStore(), identifier);
+    await requestPasswordReset(await getStore(), identifier);
     return Response.json({ data: { ok: true } });
   } catch (e) {
     return errorResponse(e);
