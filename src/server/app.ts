@@ -30,7 +30,7 @@ async function createPgStore(url: string): Promise<DataStore> {
     console.log("[La Barra] Base vacía: generando datos de ejemplo e importándolos a PostgreSQL…");
     const t = Date.now();
     const demo = new SqliteStore(":memory:");
-    await seed(demo);
+    await seed(demo, new Date(), { history: false });
     await importAll(demo, store, (m) => console.log(m));
     await demo.close();
     console.log(`[La Barra] Datos de ejemplo cargados en ${Math.round((Date.now() - t) / 1000)} s.`);

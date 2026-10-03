@@ -32,4 +32,13 @@ describe("Datos de ejemplo", () => {
       expect(await store.find("supplies", (s) => s.stock < 0)).toHaveLength(0);
     }
   });
+
+  it("carga usuarios y datos base sin simular historial", async () => {
+    const store = new SqliteStore(":memory:");
+    await seed(store, new Date(), { history: false });
+
+    expect(await store.count("users")).toBe(8);
+    expect(await store.count("products")).toBeGreaterThan(0);
+    expect(await store.count("sales")).toBeLessThan(20);
+  });
 });
