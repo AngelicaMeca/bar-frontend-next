@@ -14,6 +14,9 @@ const g = globalThis as unknown as { __barStore?: Promise<DataStore> };
 async function createStore(): Promise<DataStore> {
   const url = process.env.DATABASE_URL;
   if (url) return createPgStore(url);
+  if (process.env.NODE_ENV === "production") {
+    throw new AppError("Base de datos no configurada en el servidor. Configure DATABASE_URL.", 503);
+  }
   const store = new SqliteStore(process.env.BAR_DB_FILE || DB_FILE);
   if ((await store.count("users")) === 0) await seed(store);
   return store;
