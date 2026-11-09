@@ -24,21 +24,36 @@ async function createStore(): Promise<DataStore> {
 
 /** PostgreSQL / Supabase. Si la base está vacía se carga con los datos de ejemplo. */
 async function createPgStore(url: string): Promise<DataStore> {
-  const store = new PgStore(postgresDriver(url));
-  if (!(await store.hasSchema())) {
-    await store.close();
-    throw new Error("La base PostgreSQL no tiene el esquema de La Barra. Ejecutá: npm run db:aplicar");
+  let store: PgStore | undefined;
+  try {
+    store = new PgStore(postgresDriver(url));
+    if (!(await store.hasSchema())) {
+      throw new AppError("La base PostgreSQL no tiene el esquema de La Barra. Ejecutá: npm run db:aplicar", 503);
+    }
+    if ((await store.count("users")) === 0) {
+      console.log("[La Barra] Base vacía: generando datos de ejemplo e importándolos a PostgreSQL…");
+      const t = Date.now();
+      const demo = new SqliteStore(":memory:");
+      await seed(demo, new Date(), { history: false });
+      await importAll(demo, store, (m) => console.log(m));
+      await demo.close();
+      console.log(`[La Barra] Datos de ejemplo cargados en ${Math.round((Date.now() - t) / 1000)} s.`);
+    }
+    return store;
+  } catch (e) {
+    if (!(e instanceof AppError)) {
+      console.error("[La Barra] Error al inicializar PostgreSQL; revise DATABASE_URL y el esquema de la base.", e);
+    }
+    if (store) {
+      try {
+        await store.close();
+      } catch (closeError) {
+        console.error("[La Barra] No se pudo cerrar la conexión fallida a PostgreSQL.", closeError);
+      }
+    }
+    if (e instanceof AppError) throw e;
+    throw new AppError("No se pudo inicializar PostgreSQL. Verifique DATABASE_URL y la conexión configurada en el servidor.", 503);
   }
-  if ((await store.count("users")) === 0) {
-    console.log("[La Barra] Base vacía: generando datos de ejemplo e importándolos a PostgreSQL…");
-    const t = Date.now();
-    const demo = new SqliteStore(":memory:");
-    await seed(demo, new Date(), { history: false });
-    await importAll(demo, store, (m) => console.log(m));
-    await demo.close();
-    console.log(`[La Barra] Datos de ejemplo cargados en ${Math.round((Date.now() - t) / 1000)} s.`);
-  }
-  return store;
 }
 
 /** Instancia única del almacén por proceso. La base se inicializa con datos de ejemplo la primera vez. */

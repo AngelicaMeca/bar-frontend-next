@@ -18,9 +18,9 @@ npm run build
 npm start
 ```
 
-Sin configuración, el sistema usa SQLite embebido: la primera vez que se inicia crea `data/bar.db` y la carga con **~4 semanas de operación simulada** (ventas, compras, reservas, arqueos) para que los reportes tengan datos. Para volver a generarla: `npm run db:reset`.
+En desarrollo, sin configuración, el sistema usa SQLite embebido: la primera vez que se inicia crea `data/bar.db` y la carga con **~4 semanas de operación simulada** (ventas, compras, reservas, arqueos) para que los reportes tengan datos. Para volver a generarla: `npm run db:reset`. En producción no se usa SQLite: se requiere una base PostgreSQL persistente configurada mediante `DATABASE_URL`.
 
-Para usar **PostgreSQL / Supabase**, definí `DATABASE_URL` en `.env.local` y seguí los pasos de [`database/README.md`](database/README.md#conexión-con-supabase) (`npm run db:probar`, `npm run db:aplicar`). En el primer inicio, los datos de ejemplo se importan a PostgreSQL.
+Para usar **PostgreSQL / Supabase**, definí `DATABASE_URL` en `.env.local` para desarrollo o en las variables de entorno del servidor para producción. Usá la cadena de conexión correcta del proveedor (en Supabase, el *Session pooler* con usuario `postgres.<project-ref>`) y seguí los pasos de [`database/README.md`](database/README.md#conexión-con-supabase) (`npm run db:probar`, `npm run db:aplicar`). En el primer inicio, los datos de ejemplo se importan a PostgreSQL. No publiques ni compartas `DATABASE_URL`.
 
 ### Usuarios de demostración
 
