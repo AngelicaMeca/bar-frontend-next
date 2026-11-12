@@ -22,6 +22,9 @@ export async function rpc<P extends ProcName>(name: P, input?: ProcInput<P>): Pr
   } catch {
     throw new ApiError("Sin conexión con el servidor. Verifique la red.", 0);
   }
+  if (res.headers.get("x-bar-storage-mode") === "sqlite" && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("bar:storage-fallback"));
+  }
   const json = await res.json().catch(() => ({ error: "Respuesta inválida del servidor" }));
   if (!res.ok) {
     if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {

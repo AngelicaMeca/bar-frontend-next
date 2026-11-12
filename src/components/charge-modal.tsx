@@ -100,8 +100,10 @@ export function ChargeModal({ orderId, methods: methodsProp, onClose }: { orderI
           <dl className="mt-4 space-y-1.5 text-sm">
             <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
             {totals.discount > 0 && <Row label="Descuento" value={`−${fmtMoney(totals.discount)}`} className="text-violet-700" />}
-            {totals.deposit > 0 && <Row label="Seña de reserva" value={`−${fmtMoney(totals.deposit)}`} className="text-emerald-700" />}
+            {deposit > 0 && <Row label="Seña de reserva abonada" value={fmtMoney(deposit)} className="text-emerald-700" />}
+            {totals.deposit > 0 && <Row label="Seña aplicada al consumo" value={`−${fmtMoney(totals.deposit)}`} className="text-emerald-700" />}
             <Row label="Total a cobrar" value={fmtMoney(totals.total)} className="border-t border-ink-100 pt-2 text-lg font-bold text-ink-950" />
+            {totals.depositRefund > 0 && <Row label="Excedente de seña a devolver al cliente" value={fmtMoney(totals.depositRefund)} className="rounded-lg bg-sky-50 px-2 py-1.5 font-semibold text-sky-900" />}
           </dl>
         </div>
 

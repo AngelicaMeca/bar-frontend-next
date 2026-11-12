@@ -8,18 +8,50 @@ import { postgresDriver } from "./db/driver";
 import { importAll } from "./db/import";
 import { PgStore } from "./db/pg-store";
 import { type DataStore, DB_FILE, SqliteStore } from "./store";
+import { FailoverActivatedError, FailoverStore, hasPostgresSnapshot, isDatabaseUnavailable } from "./failover-store";
 
 const g = globalThis as unknown as { __barStore?: Promise<DataStore> };
 
 async function createStore(): Promise<DataStore> {
   const url = process.env.DATABASE_URL;
-  if (url) return createPgStore(url);
-  if (process.env.NODE_ENV === "production") {
-    throw new AppError("Base de datos no configurada en el servidor. Configure DATABASE_URL.", 503);
+  const sqliteFile = process.env.BAR_DB_FILE || DB_FILE;
+  if (!url && process.env.NODE_ENV !== "production") {
+    const store = new SqliteStore(sqliteFile);
+    if ((await store.count("users")) === 0) await seed(store);
+    return store;
   }
-  const store = new SqliteStore(process.env.BAR_DB_FILE || DB_FILE);
-  if ((await store.count("users")) === 0) await seed(store);
-  return store;
+
+  const fallback = new SqliteStore(sqliteFile);
+  if ((await fallback.getMeta("postgres-fallback-pending")) === "1") {
+    console.warn("[La Barra] La copia contiene cambios hechos sin PostgreSQL; se conserva SQLite para evitar sobrescribirlos. Resuelva los cambios antes de volver a sincronizar.");
+    return new FailoverStore(undefined, fallback);
+  }
+  if (!url) {
+    if (await hasPostgresSnapshot(fallback)) {
+      console.error("[La Barra] DATABASE_URL no está configurada; se inicia con la copia SQLite local.");
+      return new FailoverStore(undefined, fallback);
+    }
+    await fallback.close();
+    throw new AppError("Configure DATABASE_URL y conecte PostgreSQL una vez para preparar la copia SQLite de respaldo.", 503);
+  }
+
+  try {
+    const primary = await createPgStore(url);
+    const store = new FailoverStore(primary, fallback);
+    await store.syncFromPrimary();
+    return store;
+  } catch (e) {
+    if ((isDatabaseUnavailable(e) || e instanceof AppError) && await hasPostgresSnapshot(fallback)) {
+      console.error("[La Barra] No se pudo iniciar PostgreSQL; se usará la copia SQLite local.", e);
+      return new FailoverStore(undefined, fallback);
+    }
+    await fallback.close();
+    if (e instanceof AppError) throw e;
+    if (isDatabaseUnavailable(e)) {
+      throw new AppError("PostgreSQL no responde y todavía no hay una copia SQLite de respaldo. Inicie el servidor una vez con PostgreSQL disponible.", 503);
+    }
+    throw new AppError("No se pudo iniciar PostgreSQL y no hay una copia SQLite de respaldo. Verifique la conexión y el esquema.", 503);
+  }
 }
 
 /** PostgreSQL / Supabase. Si la base está vacía se carga con los datos de ejemplo. */
@@ -41,9 +73,6 @@ async function createPgStore(url: string): Promise<DataStore> {
     }
     return store;
   } catch (e) {
-    if (!(e instanceof AppError)) {
-      console.error("[La Barra] Error al inicializar PostgreSQL; revise DATABASE_URL y el esquema de la base.", e);
-    }
     if (store) {
       try {
         await store.close();
@@ -51,8 +80,7 @@ async function createPgStore(url: string): Promise<DataStore> {
         console.error("[La Barra] No se pudo cerrar la conexión fallida a PostgreSQL.", closeError);
       }
     }
-    if (e instanceof AppError) throw e;
-    throw new AppError("No se pudo inicializar PostgreSQL. Verifique DATABASE_URL y la conexión configurada en el servidor.", 503);
+    throw e;
   }
 }
 
@@ -82,6 +110,7 @@ export async function getAuth() {
 }
 
 export function errorResponse(e: unknown) {
+  if (e instanceof FailoverActivatedError) return Response.json({ error: e.message }, { status: 503 });
   if (e instanceof AppError) return Response.json({ error: e.message }, { status: e.status });
   if (e && typeof e === "object" && "issues" in e && Array.isArray((e as { issues: unknown[] }).issues)) {
     const issues = (e as { issues: { message: string; path: (string | number)[] }[] }).issues;

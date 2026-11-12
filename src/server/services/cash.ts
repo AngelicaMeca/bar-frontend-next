@@ -250,6 +250,21 @@ export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
       change,
     };
     await ctx.store.put("sales", sale);
+    // Excedente de seña: se devuelve al cliente y queda registrado como egreso del turno.
+    if (totals.depositRefund > 0 && reservation?.deposit) {
+      await ctx.store.put("cashMovements", {
+        id: uid(),
+        shiftId: shift.id,
+        type: "egreso",
+        methodId: reservation.deposit.methodId,
+        amount: totals.depositRefund,
+        reason: `Devolución de excedente de seña — ${reservation.customerName} (comprobante #${sale.number})`,
+        at: sale.at,
+        userId: ctx.user.id,
+        userName: fullName(ctx.user),
+        refId: reservation.id,
+      });
+    }
     await ctx.store.put("orders", { ...o, status: "cobrado", closedAt: sale.at, saleId: sale.id });
 
     // La mesa se libera recién al confirmarse el cobro (RF-PED-11).
@@ -274,7 +289,12 @@ export function charge(ctx: Ctx, input: z.infer<typeof chargeSchema>) {
 export async function getSale(ctx: Ctx, id: string) {
   const sale = must(await ctx.store.get("sales", id), "Comprobante inexistente");
   const waiter = await ctx.store.get("users", sale.waiterId);
-  return { sale, waiterName: waiter ? fullName(waiter) : "—", barName: (await getConfig(ctx.store)).barName };
+  // La seña total abonada se toma de la reserva: la venta sólo guarda la parte aplicada al consumo.
+  const order = await ctx.store.get("orders", sale.orderId);
+  const reservation = order?.reservationId ? await ctx.store.get("reservations", order.reservationId) : undefined;
+  const depositPaid = reservation?.deposit ? reservation.deposit.amount : sale.deposit;
+  const depositRefund = Math.max(0, round2(depositPaid - sale.deposit));
+  return { sale, waiterName: waiter ? fullName(waiter) : "—", barName: (await getConfig(ctx.store)).barName, depositPaid, depositRefund };
 }
 
 export async function listShifts(ctx: Ctx, input: { limit?: number } = {}) {

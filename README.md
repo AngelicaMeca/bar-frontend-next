@@ -22,6 +22,14 @@ En desarrollo, sin configuración, el sistema usa SQLite embebido: la primera ve
 
 Para usar **PostgreSQL / Supabase**, definí `DATABASE_URL` en `.env.local` para desarrollo o en las variables de entorno del servidor para producción. Usá la cadena de conexión correcta del proveedor (en Supabase, el *Session pooler* con usuario `postgres.<project-ref>`) y seguí los pasos de [`database/README.md`](database/README.md#conexión-con-supabase) (`npm run db:probar`, `npm run db:aplicar`). En el primer inicio, los datos de ejemplo se importan a PostgreSQL. No publiques ni compartas `DATABASE_URL`.
 
+### Respaldo SQLite en producción
+
+Al iniciar con PostgreSQL disponible, el servidor conserva una copia local completa en `data/bar.db` (o en la ruta indicada por `BAR_DB_FILE`) y la actualiza después de cada transacción. Si PostgreSQL deja de responder, continúa con esa copia, incluidos los usuarios y sesiones; la interfaz muestra un aviso cuando opera en modo SQLite.
+
+El respaldo requiere un **disco persistente** montado en el servidor y una sola instancia de la aplicación usando ese archivo. La copia se prepara cuando PostgreSQL está disponible; si el servidor nunca pudo conectarse y no existe una copia previa, no hay usuarios para autenticar en SQLite.
+
+Las operaciones hechas durante la caída quedan sólo en SQLite y **no se fusionan automáticamente** con PostgreSQL. Para evitar perderlas, el servidor conserva el modo de respaldo incluso tras reiniciarse cuando detecta escrituras pendientes. Hacé una copia del archivo SQLite y reconciliá esos cambios con PostgreSQL antes de volver a usarlo como base principal; luego configurá `BAR_DB_FILE` con una ruta persistente nueva para generar una copia limpia de PostgreSQL. No borres la copia anterior hasta verificar la recuperación.
+
 ### Usuarios de demostración
 
 Contraseña de todos: **`Bar12345`**

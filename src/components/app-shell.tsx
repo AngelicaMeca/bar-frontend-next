@@ -33,7 +33,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 function Shell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
-  const { user } = useSession();
+  const { user, fallbackMode } = useSession();
   const [prevPath, setPrevPath] = useState(pathname);
   if (prevPath !== pathname) {
     setPrevPath(pathname);
@@ -71,6 +71,12 @@ function Shell({ children }: { children: React.ReactNode }) {
             Cámbiela ahora
           </Link>
           .
+        </div>
+      )}
+
+      {fallbackMode && (
+        <div className="no-print border-b border-amber-300 bg-amber-100 px-4 py-2.5 text-center text-sm text-amber-950 sm:px-6">
+          Modo de respaldo SQLite: los cambios quedan en este servidor y no se sincronizan automáticamente con PostgreSQL.
         </div>
       )}
 

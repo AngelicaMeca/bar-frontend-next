@@ -309,6 +309,10 @@ function PurchaseModal({ onClose }: { onClose: () => void }) {
   const { run, pending } = useAction();
   const supplier = suppliers?.find((s) => s.id === supplierId);
   const total = round2(items.reduce((a, i) => a + (Number(i.qty) || 0) * (Number(i.unitCost) || 0), 0));
+  const lines = items.filter((i) => Number(i.qty) > 0);
+  const badQty = lines.some((i) => supplies?.find((x) => x.id === i.supplyId)?.type === "unitario" && !Number.isInteger(Number(i.qty)));
+  const badCost = lines.some((i) => !(Number(i.unitCost) > 0));
+  const formError = badQty ? "Los insumos unitarios deben pedirse en cantidades enteras." : badCost ? "Cada insumo debe tener un costo unitario mayor a 0." : "";
 
   const chooseSupplier = (id: string) => {
     setSupplierId(id);
@@ -331,9 +335,10 @@ function PurchaseModal({ onClose }: { onClose: () => void }) {
         <div className="flex w-full items-center justify-between">
           <span className="text-sm text-ink-500">
             Total estimado <b className="text-lg text-ink-900 tabular-nums">{fmtMoney(total)}</b>
+            {formError && <span className="mt-0.5 block text-xs font-medium text-rose-600">{formError}</span>}
           </span>
           <Button
-            disabled={!supplierId || !items.some((i) => Number(i.qty) > 0)}
+            disabled={!supplierId || lines.length === 0 || !!formError || total <= 0}
             loading={pending === "purchases.create"}
             onClick={async () => {
               const r = await run(
@@ -379,7 +384,7 @@ function PurchaseModal({ onClose }: { onClose: () => void }) {
                       </option>
                     ))}
                   </Select>
-                  <NumberInput min={0} value={it.qty} onChange={(v) => setItems((xs) => xs.map((x, i) => (i === idx ? { ...x, qty: v } : x)))} placeholder={s?.unit ?? "cant."} />
+                  <NumberInput min={0} step={s?.type === "unitario" ? 1 : "any"} value={it.qty} onChange={(v) => setItems((xs) => xs.map((x, i) => (i === idx ? { ...x, qty: v } : x)))} placeholder={s?.unit ?? "cant."} />
                   <NumberInput min={0} value={it.unitCost} onChange={(v) => setItems((xs) => xs.map((x, i) => (i === idx ? { ...x, unitCost: v } : x)))} placeholder="$ unitario" />
                   <IconButton label="Quitar" onClick={() => setItems((xs) => xs.filter((_, i) => i !== idx))}>
                     <Trash2 className="size-4" />
@@ -540,7 +545,9 @@ function CostHistory() {
   const [supplierId, setSupplierId] = useState("");
   const [supplyId, setSupplyId] = useState("");
   const { data, loading } = useQuery("purchases.history", { supplierId: supplierId || undefined, supplyId: supplyId || undefined });
-  const chartData = supplyId ? [...(data ?? [])].reverse().map((r) => ({ fecha: fmtDate(r.at).slice(0, 5), costo: r.unitCost })) : [];
+  // Cada compra es un punto propio: se usa un índice único como eje X (varias compras pueden caer el mismo día
+  // y, con la fecha como categoría, el tooltip mostraba siempre el costo de la primera).
+  const chartData = supplyId ? [...(data ?? [])].reverse().map((r, i) => ({ idx: i, fecha: fmtDate(r.at).slice(0, 5), fechaHora: fmtDateTime(r.at), oc: r.number, costo: r.unitCost })) : [];
   return (
     <div className="space-y-4">
       <Card className="flex flex-wrap gap-3 p-4">
@@ -568,9 +575,15 @@ function CostHistory() {
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData} margin={{ left: 10, right: 10, top: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e9ebf1" />
-                <XAxis dataKey="fecha" tick={{ fontSize: 12, fill: "#7a84a0" }} />
+                <XAxis dataKey="idx" type="number" domain={[0, chartData.length - 1]} ticks={chartData.map((d) => d.idx)} tickFormatter={(i) => chartData[Number(i)]?.fecha ?? ""} tick={{ fontSize: 12, fill: "#7a84a0" }} />
                 <YAxis tick={{ fontSize: 12, fill: "#7a84a0" }} tickFormatter={(v) => fmtMoney(Number(v)).replace(",00", "")} width={90} />
-                <Tooltip formatter={(v) => fmtMoney(Number(v))} />
+                <Tooltip
+                  formatter={(v) => [fmtMoney(Number(v)), "Costo"]}
+                  labelFormatter={(i) => {
+                    const d = chartData[Number(i)];
+                    return d ? `OC #${d.oc} · ${d.fechaHora}` : "";
+                  }}
+                />
                 <Line type="monotone" dataKey="costo" stroke="#d98124" strokeWidth={2.5} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>

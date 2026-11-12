@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { BarTable, Customer, Reservation } from "@/lib/types";
 import { fmtDateTime, fmtMoney } from "@/lib/format";
 import { normalize } from "@/lib/search";
+import { isValidPhone, PHONE_ERROR } from "@/lib/validation";
 import { assert, audit, type Ctx, fullName, getConfig, must, mustGetMany, nowIso, uid } from "../core";
 import { currentShift } from "./cash";
 import { openOrder } from "./orders";
@@ -10,7 +11,7 @@ const ACTIVE: Reservation["status"][] = ["confirmada", "sentada"];
 
 export const reservationSchema = z.object({
   customerName: z.string().trim().min(2, "Indique el nombre del cliente").max(120),
-  phone: z.string().trim().min(6, "Indique un teléfono de contacto").max(30),
+  phone: z.string().trim().min(1, "Indique un teléfono de contacto").max(30).refine(isValidPhone, PHONE_ERROR),
   email: z.union([z.literal(""), z.email("Email inválido")]).default(""),
   at: z.string().refine((s) => !Number.isNaN(Date.parse(s)), "Fecha/hora inválida"),
   durationMin: z.number().int().min(30).max(480).optional(),
@@ -22,12 +23,17 @@ export const reservationSchema = z.object({
 
 async function upsertCustomer(ctx: Ctx, name: string, phone: string, email: string): Promise<Customer> {
   const nPhone = phone.replace(/\D/g, "");
+  // Un cliente existente se reutiliza sólo si coincide el contacto Y el nombre. Si otra persona deja el mismo
+  // teléfono se crea un cliente aparte: nunca se pisa el nombre de reservas anteriores.
+  const nName = normalize(name).replace(/\s+/g, " ");
   const existing = (await ctx.store.find(
       "customers",
-      (c) => (!!nPhone && c.phone.replace(/\D/g, "") === nPhone) || (!!email && c.email.toLowerCase() === email.toLowerCase()),
+      (c) =>
+        normalize(c.name).replace(/\s+/g, " ") === nName &&
+        ((!!nPhone && c.phone.replace(/\D/g, "") === nPhone) || (!!email && c.email.toLowerCase() === email.toLowerCase())),
     ))[0];
   if (existing) {
-    const updated = { ...existing, name, phone, email: email || existing.email };
+    const updated = { ...existing, phone, email: email || existing.email };
     await ctx.store.put("customers", updated);
     return updated;
   }

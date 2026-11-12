@@ -1,7 +1,7 @@
 "use client";
 
 import { ChefHat, CheckCircle2, Clock, Hand, Hourglass, LayoutGrid, List, Move, Pencil, Split, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useElementWidth, useNow } from "@/components/hooks";
 import { useAction, useQuery } from "@/components/live";
 import { useSession } from "@/components/session";
@@ -102,7 +102,7 @@ export default function SalonPage() {
         <div className="mb-4 flex items-start gap-3 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
           <Hand className="mt-0.5 size-4 shrink-0" />
           <p>
-            Arrastre las mesas para ubicarlas. Si suelta una mesa a menos de <b>{data.snapThreshold} px</b> de otra, se <b>unen</b> automáticamente (la capacidad se suma). Las posiciones se guardan para todos los usuarios.
+            Arrastre las mesas para ubicarlas. Si suelta una mesa <b>pegada o muy cerca</b> de otra, se <b>unen</b> automáticamente (la capacidad se suma). Cerca de los bordes el plano se desplaza solo. Las posiciones se guardan para todos los usuarios.
           </p>
         </div>
       )}
@@ -156,6 +156,16 @@ function FloorPlan({
   onMoved: () => void;
 }) {
   const [setRef, width] = useElementWidth<HTMLDivElement>();
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const setScroller = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollerRef.current = el;
+      setRef(el);
+    },
+    [setRef],
+  );
+  const pointer = useRef({ x: 0, y: 0 });
+  const startScroll = useRef({ x: 0, y: 0 });
   // En pantallas chicas se mantiene una escala mínima legible y el plano se desplaza horizontalmente.
   const scale = width ? Math.max(width / PLAN_W, 0.62) : 1;
   const { run } = useAction();
@@ -167,6 +177,41 @@ function FloorPlan({
     const o = overrides && overrides.stamp === floor ? overrides.pos[t.id] : undefined;
     return { ...t, ...tableSize(t.shape, t.capacity), ...(o ?? {}) };
   });
+  // Mientras se arrastra, si el puntero está cerca de un borde se desplaza el plano (horizontal) o la página (vertical)
+  // y la mesa acompaña el desplazamiento.
+  const dragActive = !!drag?.moved;
+  useEffect(() => {
+    if (!dragActive) return;
+    let raf = 0;
+    const EDGE = 64;
+    const MAX = 22;
+    const speed = (pos: number, min: number, max: number) => (pos < min + EDGE ? -Math.ceil(((min + EDGE - pos) / EDGE) * MAX) : pos > max - EDGE ? Math.ceil(((pos - (max - EDGE)) / EDGE) * MAX) : 0);
+    const tick = () => {
+      const el = scrollerRef.current;
+      if (el) {
+        const r = el.getBoundingClientRect();
+        const sx = speed(pointer.current.x, Math.max(r.left, 0), Math.min(r.right, window.innerWidth));
+        const sy = speed(pointer.current.y, 0, window.innerHeight);
+        if (sx) el.scrollLeft += sx;
+        if (sy) window.scrollBy(0, sy);
+        if (sx || sy) {
+          setDrag((d) =>
+            d
+              ? {
+                  ...d,
+                  dx: (pointer.current.x - d.sx + (el.scrollLeft - startScroll.current.x)) / scale,
+                  dy: (pointer.current.y - d.sy + (window.scrollY - startScroll.current.y)) / scale,
+                }
+              : d,
+          );
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [dragActive, scale]);
+
   const dragged = drag ? sized.find((t) => t.id === drag.id) : undefined;
   const dragGroup = dragged?.groupId ? new Set(sized.filter((t) => t.groupId === dragged.groupId).map((t) => t.id)) : dragged ? new Set([dragged.id]) : new Set<string>();
 
@@ -212,7 +257,7 @@ function FloorPlan({
 
   return (
     <Card className="overflow-hidden p-2 sm:p-3">
-      <div ref={setRef} className="scrollbar-thin w-full overflow-x-auto">
+      <div ref={setScroller} className="scrollbar-thin w-full overflow-x-auto">
        <div className="relative" style={{ width: PLAN_W * scale, height: PLAN_H * scale }}>
         <div
           className={cn(
@@ -222,8 +267,9 @@ function FloorPlan({
           style={{ width: PLAN_W, height: PLAN_H, transform: `scale(${scale})` }}
           onPointerMove={(e) => {
             if (!drag) return;
-            const dx = (e.clientX - drag.sx) / scale;
-            const dy = (e.clientY - drag.sy) / scale;
+            pointer.current = { x: e.clientX, y: e.clientY };
+            const dx = (e.clientX - drag.sx + (scrollerRef.current ? scrollerRef.current.scrollLeft - startScroll.current.x : 0)) / scale;
+            const dy = (e.clientY - drag.sy + (window.scrollY - startScroll.current.y)) / scale;
             setDrag({ ...drag, dx, dy, moved: drag.moved || Math.hypot(dx, dy) > 4 });
           }}
           onPointerUp={finishDrag}
@@ -233,11 +279,27 @@ function FloorPlan({
           {groups.map(({ g, members }) => {
             const bb = boundingBox(members.map((m) => ({ ...pos(m), w: m.w, h: m.h })));
             const cap = members.reduce((a, m) => a + m.capacity, 0);
+            const groupOrder = members[0].currentOrderId ? orders.get(members[0].currentOrderId) : undefined;
             return (
               <div key={g.id} className="pointer-events-none absolute rounded-2xl border-2 border-dashed border-violet-400 bg-violet-100/40" style={{ left: bb.x - 8, top: bb.y - 8, width: bb.w + 16, height: bb.h + 16 }}>
                 <span className="absolute -top-3 left-3 rounded-full bg-violet-600 px-2 py-0.5 text-[11px] font-bold text-white shadow">
                   Unión · {cap} pers.
                 </span>
+                {groupOrder && groupOrder.pending > 0 && (
+                  <span className="absolute -top-3 -right-2 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                    <ChefHat className="size-3" /> {groupOrder.pending}
+                  </span>
+                )}
+                {groupOrder && groupOrder.delays.length > 0 && (
+                  <span className="absolute -bottom-3 -left-2 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow ring-2 ring-white">
+                    <Hourglass className="size-3" /> Demora
+                  </span>
+                )}
+                {groupOrder?.status === "listo" && (
+                  <span className="absolute -bottom-3 -right-2 flex items-center gap-0.5 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
+                    <CheckCircle2 className="size-3" /> Lista
+                  </span>
+                )}
               </div>
             );
           })}
@@ -263,6 +325,8 @@ function FloorPlan({
                 onPointerDown={(e) => {
                   if (!edit) return;
                   e.currentTarget.parentElement?.setPointerCapture(e.pointerId);
+                  pointer.current = { x: e.clientX, y: e.clientY };
+                  startScroll.current = { x: scrollerRef.current?.scrollLeft ?? 0, y: window.scrollY };
                   setDrag({ id: t.id, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, moved: false });
                 }}
                 onClick={() => !edit && onSelect(t.id)}
@@ -277,26 +341,27 @@ function FloorPlan({
                 )}
                 style={{ left: p.x, top: p.y, width: t.w, height: t.h }}
               >
-                <span className="text-base leading-none font-extrabold">{t.code}</span>
+                <span className="max-w-full truncate px-1 text-base leading-none font-extrabold">{t.code}</span>
                 <span className="mt-1 flex items-center gap-0.5 text-[11px] font-medium opacity-70">
                   <Users className="size-3" /> {t.capacity}
                 </span>
                 {order && (
-                  <span className="mt-0.5 text-[10px] font-semibold opacity-80">
-                    {elapsed(order.openedAt, now)} · {t.waiterName?.split(" ")[0]}
+                  <span className="mt-0.5 max-w-full truncate px-1.5 text-[10px] leading-tight font-semibold opacity-80">
+                    {elapsed(order.openedAt, now)}
+                    <span className="block truncate">{t.waiterName?.split(" ")[0]}</span>
                   </span>
                 )}
-                {order && order.pending > 0 && (
+                {order && !t.groupId && order.pending > 0 && (
                   <span className="absolute -top-2 -right-2 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
                     <ChefHat className="size-3" /> {order.pending}
                   </span>
                 )}
-                {order && order.delays.length > 0 && (
+                {order && !t.groupId && order.delays.length > 0 && (
                   <span className="absolute -top-2 -left-2 flex items-center gap-0.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow ring-2 ring-white" title={order.delays.map((d) => `Tanda ${d.batchNumber}: ${d.reason}`).join(" · ")}>
                     <Hourglass className="size-3" /> Demora
                   </span>
                 )}
-                {order?.status === "listo" && (
+                {order?.status === "listo" && !t.groupId && (
                   <span className="absolute -top-2 -right-2 flex items-center gap-0.5 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">
                     <CheckCircle2 className="size-3" /> Lista
                   </span>

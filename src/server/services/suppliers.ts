@@ -7,7 +7,7 @@ import { applyStockChange } from "./stock";
 
 export const supplierSchema = z.object({
   name: z.string().trim().min(2, "Indique la razón social").max(120),
-  cuit: z.string().trim().regex(/^(d{2}-d{8}-d)?$/, "CUIT inválido (formato 30-12345678-9)").default(""),
+  cuit: z.string().trim().regex(/^(\d{2}-\d{8}-\d)?$/, "CUIT inválido (formato 30-12345678-9)").default(""),
   contact: z.string().trim().default(""),
   phone: z.string().trim().min(6, "Indique un teléfono válido").max(30),
   email: z.union([z.literal(""), z.email("Email inválido")]).default(""),
@@ -33,8 +33,16 @@ export async function listSuppliers(ctx: Ctx, input: { q?: string; includeInacti
     .map((s) => ({ ...s, supplyNames: s.supplyIds.map((id) => supplies.get(id)?.name).filter(Boolean) as string[] }));
 }
 
+/** La razón social no puede repetirse entre proveedores (sin distinguir mayúsculas ni tildes). */
+async function assertUniqueName(ctx: Ctx, name: string, exceptId?: string) {
+  const n = normalize(name).replace(/s+/g, " ");
+  const dup = (await ctx.store.all("suppliers")).find((s) => s.id !== exceptId && normalize(s.name).replace(/s+/g, " ") === n);
+  assert(!dup, `Ya existe un proveedor con la razón social "${dup?.name}"`);
+}
+
 export function createSupplier(ctx: Ctx, input: z.infer<typeof supplierSchema>) {
   return ctx.store.tx(async () => {
+    await assertUniqueName(ctx, input.name);
     const supplier: Supplier = { id: uid(), ...input, active: true, createdAt: nowIso(ctx) };
     await ctx.store.put("suppliers", supplier);
     await audit(ctx, "Alta de proveedor", "proveedor", supplier.name, supplier.id);
@@ -45,6 +53,7 @@ export function createSupplier(ctx: Ctx, input: z.infer<typeof supplierSchema>) 
 export function updateSupplier(ctx: Ctx, input: z.infer<typeof supplierSchema> & { id: string }) {
   return ctx.store.tx(async () => {
     const s = must(await ctx.store.get("suppliers", input.id), "Proveedor inexistente");
+    await assertUniqueName(ctx, input.name, s.id);
     const updated = { ...s, ...input };
     await ctx.store.put("suppliers", updated);
     await audit(ctx, "Modificación de proveedor", "proveedor", s.name, s.id);
@@ -70,7 +79,7 @@ export const purchaseSchema = z.object({
   expectedAt: z.string().optional(),
   notes: z.string().default(""),
   items: z
-    .array(z.object({ supplyId: z.string(), qty: z.number().positive("Cantidad inválida"), unitCost: z.number().min(0) }))
+    .array(z.object({ supplyId: z.string(), qty: z.number().positive("Cantidad inválida"), unitCost: z.number().positive("El costo unitario debe ser mayor a 0") }))
     .min(1, "Agregue al menos un insumo"),
 });
 
@@ -85,8 +94,10 @@ export function createPurchase(ctx: Ctx, input: z.infer<typeof purchaseSchema>) 
       assert(!ids.has(i.supplyId), "Hay insumos repetidos en la orden");
       ids.add(i.supplyId);
       const s = must(await ctx.store.get("supplies", i.supplyId), "Insumo inexistente");
+      assert(s.type !== "unitario" || Number.isInteger(i.qty), `${s.name}: es un insumo unitario, la cantidad debe ser un número entero`);
       items.push({ supplyId: s.id, supplyName: s.name, unit: s.unit, qty: i.qty, unitCost: i.unitCost, receivedQty: 0 });
     }
+    assert(items.reduce((a, i) => a + i.qty * i.unitCost, 0) > 0, "El total de la orden debe ser mayor a 0");
     const po: PurchaseOrder = {
       id: uid(),
       number: await ctx.store.nextSeq("purchase"),

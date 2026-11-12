@@ -79,6 +79,7 @@ export type SeqName = "order" | "sale" | "purchase" | "stockMovement";
  */
 export interface DataStore {
   readonly kind: "sqlite" | "postgres";
+  readonly isFallback?: boolean;
   all<K extends CollectionName>(col: K): Promise<Collections[K][]>;
   find<K extends CollectionName>(col: K, pred: (d: Collections[K]) => boolean): Promise<Collections[K][]>;
   get<K extends CollectionName>(col: K, id: string): Promise<Collections[K] | undefined>;

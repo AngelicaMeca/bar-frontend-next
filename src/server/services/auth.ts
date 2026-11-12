@@ -119,7 +119,12 @@ export async function requestPasswordReset(store: DataStore, identifier: string,
 
 // ---------- Sesión actual ----------
 export async function me(ctx: Ctx, sessionId: string) {
-  return { user: toPublic(ctx.user), sessionId, barName: (await getConfig(ctx.store)).barName };
+  return {
+    user: toPublic(ctx.user),
+    sessionId,
+    barName: (await getConfig(ctx.store)).barName,
+    fallbackMode: ctx.store.isFallback === true,
+  };
 }
 
 export function changeOwnPassword(ctx: Ctx, input: { current: string; next: string }) {

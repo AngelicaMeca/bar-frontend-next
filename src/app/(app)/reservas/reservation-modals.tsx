@@ -10,6 +10,7 @@ import { useSession } from "@/components/session";
 import { Badge, Button, Checkbox, cn, Field, Input, NumberInput, Select, Textarea } from "@/components/ui";
 import { fmtDateTime, fmtMoney, toLocalInput } from "@/lib/format";
 import { DEPOSIT_STATUS, RESERVATION_STATUS } from "@/lib/labels";
+import { isValidPhone, PHONE_ERROR } from "@/lib/validation";
 import type { Reservation } from "@/lib/types";
 
 /** Alta y modificación de reservas (RF-RES-01, RF-RES-04). */
@@ -66,7 +67,7 @@ export function ReservationForm({ reservation, defaultDay, onClose }: { reservat
           <Button variant="secondary" onClick={onClose}>
             Cancelar
           </Button>
-          <Button onClick={save} loading={pending !== null} disabled={!form.tableIds.length || !form.people || !form.at || (!reservation && (form.customerName.trim().length < 2 || form.phone.trim().length < 6))}>
+          <Button onClick={save} loading={pending !== null} disabled={!form.tableIds.length || !form.people || !form.at || (!reservation && (form.customerName.trim().length < 2 || !isValidPhone(form.phone)))}>
             {reservation ? "Guardar cambios" : "Registrar reserva"}
           </Button>
         </>
@@ -78,8 +79,8 @@ export function ReservationForm({ reservation, defaultDay, onClose }: { reservat
             <Field label="Cliente" className="sm:col-span-2">
               <Input value={form.customerName} onChange={(e) => set("customerName", e.target.value)} placeholder="Nombre y apellido" />
             </Field>
-            <Field label="Teléfono">
-              <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+54 9 11 …" />
+            <Field label="Teléfono" error={form.phone && !isValidPhone(form.phone) ? PHONE_ERROR : undefined}>
+              <Input type="tel" inputMode="tel" maxLength={20} value={form.phone} onChange={(e) => set("phone", e.target.value.replace(/[^\d\s()+-]/g, ""))} placeholder="+54 9 11 …" />
             </Field>
             <Field label="Email">
               <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="Opcional" />

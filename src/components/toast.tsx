@@ -38,7 +38,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     (tone: Tone, title: string, body?: string) => {
       const id = ++seq;
       setToasts((t) => [...t.slice(-3), { id, tone, title, body }]);
-      setTimeout(() => dismiss(id), tone === "error" ? 6500 : 3800);
+      setTimeout(() => dismiss(id), tone === "error" ? 9000 : 6000);
     },
     [dismiss],
   );
@@ -63,15 +63,15 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={t.id}
               role="status"
-              className="pointer-events-auto flex w-full max-w-sm animate-slide-up items-start gap-3 rounded-2xl border border-ink-100 bg-white p-3.5 shadow-pop"
+              className="pointer-events-auto flex w-full max-w-lg animate-slide-up items-start gap-4 rounded-2xl border border-ink-100 bg-white p-5 shadow-pop"
             >
-              <Icon className={`mt-0.5 size-5 shrink-0 ${TONES[t.tone]}`} />
+              <Icon className={`mt-0.5 size-7 shrink-0 ${TONES[t.tone]}`} />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-ink-900">{t.title}</p>
-                {t.body && <p className="mt-0.5 text-sm text-ink-500">{t.body}</p>}
+                <p className="text-lg leading-snug font-bold text-ink-900">{t.title}</p>
+                {t.body && <p className="mt-1 text-base leading-snug text-ink-600">{t.body}</p>}
               </div>
-              <button onClick={() => dismiss(t.id)} className="rounded-lg p-1 text-ink-400 hover:bg-ink-50 hover:text-ink-700" aria-label="Cerrar">
-                <X className="size-4" />
+              <button onClick={() => dismiss(t.id)} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-50 hover:text-ink-700" aria-label="Cerrar">
+                <X className="size-5" />
               </button>
             </div>
           );

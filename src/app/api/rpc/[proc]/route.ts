@@ -20,7 +20,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     // Las operaciones se ejecutan "en nombre" del usuario (trazabilidad en PostgreSQL, RNF-09).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await withActor(ctx.user.id, async () => (p.handler as any)(ctx, input, { sessionId }));
-    return Response.json({ data: result ?? null });
+    return Response.json(
+      { data: result ?? null },
+      { headers: { "x-bar-storage-mode": ctx.store.isFallback ? "sqlite" : "postgres" } },
+    );
   } catch (e) {
     return errorResponse(e);
   }

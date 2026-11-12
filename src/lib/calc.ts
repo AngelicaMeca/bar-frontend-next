@@ -17,6 +17,9 @@ export const sentBatches = (o: Order) => o.batches.filter((b) => b.status !== "b
 /** Tandas pendientes en cocina marcadas con demora (se dejan de contar al quedar listas). */
 export const delayedBatches = (o: Order) => o.batches.filter((b) => b.status === "pendiente" && !!b.delay && activeItems(b).length > 0);
 
+/** Tanda enviada cuyos ítems fueron todos cancelados: se muestra como "Cancelada". */
+export const isBatchCancelled = (b: Batch) => b.status !== "borrador" && b.items.length > 0 && activeItems(b).length === 0;
+
 export const draftBatch =(o: Order) => o.batches.find((b) => b.status === "borrador");
 
 /** El pedido está listo cuando todas sus tandas enviadas están listas y no hay borradores con ítems (RF-PED-11). */
@@ -43,5 +46,7 @@ export function saleTotals(subtotal: number, discount: DiscountInput | null | un
   const disc = discountAmount(subtotal, discount);
   const afterDiscount = round2(subtotal - disc);
   const depositApplied = round2(Math.min(Math.max(deposit, 0), afterDiscount));
-  return { subtotal, discount: disc, deposit: depositApplied, total: round2(afterDiscount - depositApplied) };
+  // Si la seña supera lo consumido, el excedente se devuelve al cliente.
+  const depositRefund = round2(Math.max(deposit, 0) - depositApplied);
+  return { subtotal, discount: disc, deposit: depositApplied, depositRefund, total: round2(afterDiscount - depositApplied) };
 }

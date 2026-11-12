@@ -1,12 +1,13 @@
 "use client";
 
-import { AlertTriangle, Check, ChefHat, Clock, History, Hourglass, Maximize2, PackageX, X } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Check, ChefHat, Clock, History, Hourglass, Maximize2, PackageX, Volume2, VolumeX, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNow } from "@/components/hooks";
 import { useAction, useQuery } from "@/components/live";
 import { Modal } from "@/components/modal";
 import { Badge, Button, Card, cn, EmptyState, ErrorState, Field, Input, Loading, NumberInput, PageHeader, SearchInput, Switch } from "@/components/ui";
 import { fmtTime } from "@/lib/format";
+import { useKitchenSound } from "./kitchen-sound";
 import { searchItems } from "@/lib/search";
 import { BATCH_KINDS, type BatchDelay } from "@/lib/types";
 
@@ -16,6 +17,20 @@ export default function CocinaPage() {
   const now = useNow(10_000);
   const [stockOpen, setStockOpen] = useState(false);
   const [delaying, setDelaying] = useState<{ orderId: string; batchId: string; title: string; current?: BatchDelay } | null>(null);
+  const sound = useKitchenSound();
+
+  // Alertas sonoras: tanda nueva y tanda que supera el tiempo de demora (cada una suena una sola vez).
+  const seen = useRef<{ batches: Set<string>; late: Set<string> } | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    const ids = new Set(data.pending.map((p) => p.batch.id));
+    const late = new Set(data.pending.filter((p) => (now - new Date(p.batch.sentAt ?? 0).getTime()) / 60000 >= data.delayMinutes).map((p) => p.batch.id));
+    const prev = seen.current;
+    seen.current = { batches: ids, late };
+    if (!prev) return; // primera carga: no se avisa por lo que ya estaba
+    if ([...late].some((id) => !prev.late.has(id))) sound.play("late");
+    else if ([...ids].some((id) => !prev.batches.has(id))) sound.play("new");
+  }, [data, now, sound]);
 
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;
@@ -32,6 +47,19 @@ export default function CocinaPage() {
         subtitle={`Tandas en orden de llegada. Alerta de demora a los ${data.delayMinutes} minutos.`}
         actions={
           <>
+            <Button
+              variant={sound.enabled ? "secondary" : "outline"}
+              icon={sound.enabled ? <Volume2 className="size-4" /> : <VolumeX className="size-4" />}
+              onClick={() => {
+                const next = !sound.enabled;
+                sound.setEnabled(next);
+                if (next) sound.play("new");
+              }}
+              aria-pressed={sound.enabled}
+              title="Alerta sonora al llegar una tanda o superar el tiempo de demora"
+            >
+              {sound.enabled ? "Sonido activado" : "Sonido silenciado"}
+            </Button>
             <Button variant="secondary" icon={<PackageX className="size-4" />} onClick={() => setStockOpen(true)}>
               Disponibilidad
             </Button>

@@ -183,6 +183,7 @@ export function updateItem(ctx: Ctx, input: z.infer<typeof updateItemSchema>) {
     const { batch, item } = findItem(o, input.itemId);
     assert(item.status === "activo", "El ítem está cancelado");
     assert(batch.status !== "listo", "La tanda ya está lista: no se puede modificar el ítem");
+    assert(!item.prepared, "Cocina ya marcó este ítem como listo: no se puede modificar");
     if (batch.status === "pendiente") {
       assert(input.kitchenConfirmed, "La tanda ya está en cocina: confirme con cocina que el cambio todavía es posible.");
     }
@@ -222,6 +223,7 @@ export function cancelItem(ctx: Ctx, input: { orderId: string; itemId: string; k
     const { batch, item } = findItem(o, input.itemId);
     assert(item.status === "activo", "El ítem ya estaba cancelado");
     assert(batch.status !== "listo", "La tanda ya está lista: no se puede cancelar el ítem");
+    assert(!item.prepared, "Cocina ya marcó este ítem como listo: no se puede cancelar");
     if (batch.status === "borrador") {
       batch.items = batch.items.filter((i) => i.id !== item.id);
       await save(ctx, o);

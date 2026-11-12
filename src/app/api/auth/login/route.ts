@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { errorResponse, getStore } from "@/server/app";
+import { FailoverActivatedError } from "@/server/failover-store";
 import { login, SESSION_COOKIE } from "@/server/services/auth";
 
 const schema = z.object({
@@ -11,7 +12,14 @@ const schema = z.object({
 export async function POST(request: Request) {
   try {
     const input = schema.parse(await request.json());
-    const result = await login(await getStore(), { ...input, userAgent: request.headers.get("user-agent") ?? "" });
+    const store = await getStore();
+    let result;
+    try {
+      result = await login(store, { ...input, userAgent: request.headers.get("user-agent") ?? "" });
+    } catch (e) {
+      if (!(e instanceof FailoverActivatedError) || !store.isFallback) throw e;
+      result = await login(store, { ...input, userAgent: request.headers.get("user-agent") ?? "" });
+    }
     if ("error" in result && result.error) throw result.error;
     if (!("token" in result)) throw new Error("login");
     const jar = await cookies();
@@ -23,7 +31,10 @@ export async function POST(request: Request) {
       path: "/",
       maxAge: result.maxAge,
     });
-    return Response.json({ data: { user: result.user } });
+    return Response.json(
+      { data: { user: result.user } },
+      { headers: { "x-bar-storage-mode": store.isFallback ? "sqlite" : "postgres" } },
+    );
   } catch (e) {
     return errorResponse(e);
   }

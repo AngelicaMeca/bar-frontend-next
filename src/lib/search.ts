@@ -25,10 +25,16 @@ export function matchScore(query: string, name: string, aliases: string[] = []):
   const parts = q.split(/\s+/).filter(Boolean);
   if (parts.length > 1 && parts.every((p) => words.some((w) => w.startsWith(p)))) return 40;
   if (q.length >= 2 && words.length >= q.length && q.split("").every((c, i) => words[i]?.startsWith(c))) return 30;
-  // Subsecuencia de letras ("mlns" -> "milanesa")
-  let i = 0;
-  for (const c of n) if (c === q[i]) i++;
-  if (q.length >= 3 && i === q.length) return 15;
+  // Subsecuencia de letras dentro de UNA palabra que empiece igual ("mlns" -> "milanesa").
+  // No se admiten saltos entre palabras: "coca" no debe coincidir con "Bife de chorizo con guarnición".
+  if (q.length >= 3 && !q.includes(" ")) {
+    for (const w of words) {
+      if (w[0] !== q[0]) continue;
+      let i = 0;
+      for (const c of w) if (c === q[i]) i++;
+      if (i === q.length) return 15;
+    }
+  }
   return 0;
 }
 

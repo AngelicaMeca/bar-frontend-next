@@ -9,6 +9,7 @@ import type { PublicUser } from "@/lib/types";
 interface SessionState {
   user: PublicUser;
   barName: string;
+  fallbackMode: boolean;
   can: (perm: Permission | Permission[]) => boolean;
   logout: () => Promise<void>;
   refresh: () => void;
@@ -18,13 +19,13 @@ const SessionCtx = createContext<SessionState | null>(null);
 
 export function SessionProvider({ children, fallback }: { children: React.ReactNode; fallback: React.ReactNode }) {
   const router = useRouter();
-  const [state, setState] = useState<{ user: PublicUser; barName: string } | null>(null);
+  const [state, setState] = useState<{ user: PublicUser; barName: string; fallbackMode: boolean } | null>(null);
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     rpc("auth.me")
-      .then((r) => !cancelled && setState({ user: r.user, barName: r.barName }))
+      .then((r) => !cancelled && setState({ user: r.user, barName: r.barName, fallbackMode: r.fallbackMode }))
       .catch(() => {
         if (!cancelled) router.replace(`/login?next=${encodeURIComponent(window.location.pathname)}`);
       });
@@ -32,6 +33,12 @@ export function SessionProvider({ children, fallback }: { children: React.ReactN
       cancelled = true;
     };
   }, [router, nonce]);
+
+  useEffect(() => {
+    const activateFallback = () => setState((current) => current && { ...current, fallbackMode: true });
+    window.addEventListener("bar:storage-fallback", activateFallback);
+    return () => window.removeEventListener("bar:storage-fallback", activateFallback);
+  }, []);
 
   const logout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);

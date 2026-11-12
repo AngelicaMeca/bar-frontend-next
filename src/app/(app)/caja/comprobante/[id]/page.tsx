@@ -15,7 +15,7 @@ export default function ReceiptPage() {
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
-  const { sale, waiterName, barName } = data;
+  const { sale, waiterName, barName, depositPaid, depositRefund } = data;
 
   return (
     <div>
@@ -76,11 +76,18 @@ export default function ReceiptPage() {
         <dl className="space-y-0.5">
           <Line label="Subtotal" value={fmtMoney(sale.subtotal)} />
           {sale.discount && <Line label={`Descuento${sale.discount.kind === "porcentaje" ? ` ${sale.discount.value}%` : ""}${sale.discount.reason ? ` (${sale.discount.reason})` : ""}`} value={`−${fmtMoney(sale.discount.amount)}`} />}
-          {sale.deposit > 0 && <Line label="Seña de reserva" value={`−${fmtMoney(sale.deposit)}`} />}
+          {depositPaid > 0 && <Line label="Seña de reserva abonada" value={fmtMoney(depositPaid)} />}
+          {sale.deposit > 0 && <Line label="Seña aplicada al consumo" value={`−${fmtMoney(sale.deposit)}`} />}
           <div className="flex justify-between pt-1 text-base font-bold">
             <span>TOTAL</span>
             <span className="tabular-nums">{fmtMoney(sale.total)}</span>
           </div>
+          {depositRefund > 0 && (
+            <div className="flex justify-between pt-1 font-semibold">
+              <span>Excedente de seña devuelto</span>
+              <span className="tabular-nums">{fmtMoney(depositRefund)}</span>
+            </div>
+          )}
         </dl>
         <div className="my-3 border-t border-dashed border-ink-300" />
         <dl className="space-y-0.5 text-xs">

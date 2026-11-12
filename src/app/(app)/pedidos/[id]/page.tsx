@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Ban, ChefHat, CheckCircle2, Clock, Hourglass, MessageSquareText, Minus, Pencil, Plus, Send, ShoppingBasket, Trash2, Users, Wallet } from "lucide-react";
+import { ArrowLeft, Ban, ChefHat, CheckCircle2, Clock, Hourglass, Minus, Pencil, Plus, Send, ShoppingBasket, Trash2, Users, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -9,7 +9,7 @@ import { ChargeModal } from "@/components/charge-modal";
 import { Modal, useConfirm } from "@/components/modal";
 import { useSession } from "@/components/session";
 import { Badge, Button, Card, cn, ErrorState, Field, IconButton, Input, Loading, NumberInput, SearchInput, Select } from "@/components/ui";
-import { activeItems, batchSubtotal, delayedBatches, orderTotal } from "@/lib/calc";
+import { activeItems, batchSubtotal, delayedBatches, isBatchCancelled, orderTotal } from "@/lib/calc";
 import { fmtMoney, fmtTime } from "@/lib/format";
 import { BATCH_STATUS, ORDER_STATUS } from "@/lib/labels";
 import { searchItems } from "@/lib/search";
@@ -172,19 +172,35 @@ export default function OrderPage() {
                   ) : (
                     <ul className="divide-y divide-ink-100">
                       {activeItems(draft).map((i) => (
-                        <li key={i.id} className="flex items-center gap-3 py-2.5">
+                        <li key={i.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 sm:flex-nowrap">
                           <div className="flex items-center rounded-xl border border-ink-200">
                             <button
-                              className="p-2 text-ink-500 hover:text-ink-900 disabled:opacity-30"
+                              className="flex size-10 items-center justify-center text-ink-500 hover:text-ink-900 disabled:opacity-30"
                               disabled={pending !== null}
                               onClick={() => (i.qty > 1 ? run("orders.updateItem", { orderId: order.id, itemId: i.id, qty: i.qty - 1, notes: i.notes }) : cancelItem(i, draft))}
                               aria-label="Restar"
                             >
                               <Minus className="size-3.5" />
                             </button>
-                            <span className="w-6 text-center text-sm font-bold tabular-nums">{i.qty}</span>
+                            <input
+                              key={`${i.id}-${i.qty}`}
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              max={99}
+                              defaultValue={i.qty}
+                              aria-label={`Cantidad de ${i.productName}`}
+                              className="h-9 w-12 bg-transparent text-center text-sm font-bold tabular-nums [appearance:textfield] focus:outline-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onFocus={(e) => e.currentTarget.select()}
+                              onBlur={(e) => {
+                                const v = Math.min(99, Math.max(1, Math.floor(Number(e.currentTarget.value) || i.qty)));
+                                if (v !== i.qty) run("orders.updateItem", { orderId: order.id, itemId: i.id, qty: v, notes: i.notes });
+                                else e.currentTarget.value = String(i.qty);
+                              }}
+                              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+                            />
                             <button
-                              className="p-2 text-ink-500 hover:text-ink-900 disabled:opacity-30"
+                              className="flex size-10 items-center justify-center text-ink-500 hover:text-ink-900 disabled:opacity-30"
                               disabled={pending !== null}
                               onClick={() => run("orders.updateItem", { orderId: order.id, itemId: i.id, qty: i.qty + 1, notes: i.notes })}
                               aria-label="Sumar"
@@ -192,14 +208,18 @@ export default function OrderPage() {
                               <Plus className="size-3.5" />
                             </button>
                           </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-semibold text-ink-900">{i.productName}</p>
-                            {i.notes && <p className="truncate text-xs text-brand-700 italic">“{i.notes}”</p>}
+                          <div className="min-w-0 flex-1 basis-32">
+                            <p className="text-sm font-semibold break-words text-ink-900">{i.productName}</p>
+                            {i.notes && <p className="text-xs break-words text-brand-700 italic">“{i.notes}”</p>}
                           </div>
                           <span className="text-sm font-semibold tabular-nums">{fmtMoney(i.qty * i.unitPrice)}</span>
-                          <IconButton label="Observaciones" onClick={() => setEditing({ item: i, batch: draft })}>
-                            <MessageSquareText className="size-4" />
-                          </IconButton>
+                          <button
+                            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-ink-200 px-2.5 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+                            onClick={() => setEditing({ item: i, batch: draft })}
+                            aria-label="Editar cantidad y observaciones"
+                          >
+                            <Pencil className="size-3.5" /> <span className="hidden sm:inline">Editar</span>
+                          </button>
                           <IconButton label="Quitar" className="hover:text-rose-600" onClick={() => cancelItem(i, draft)}>
                             <Trash2 className="size-4" />
                           </IconButton>
@@ -246,7 +266,7 @@ export default function OrderPage() {
             <Card key={b.id} className={cn(b.status === "pendiente" && "border-amber-200")}>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-100 px-5 py-3.5">
                 <div className="flex items-center gap-3">
-                  <div className={cn("flex size-9 items-center justify-center rounded-xl font-bold", b.status === "listo" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{b.number}</div>
+                  <div className={cn("flex size-9 items-center justify-center rounded-xl font-bold", isBatchCancelled(b) ? "bg-rose-100 text-rose-700" : b.status === "listo" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700")}>{b.number}</div>
                   <div>
                     <p className="font-bold text-ink-900">
                       Tanda {b.number} · {BATCH_KINDS[b.kind]}
@@ -263,22 +283,29 @@ export default function OrderPage() {
                       <Hourglass className="size-3" /> Demorada{b.delay.minutes ? ` +${b.delay.minutes}′` : ""}
                     </Badge>
                   )}
-                  <Badge tone={BATCH_STATUS[b.status].tone} dot>
-                    {b.status === "pendiente" ? <ChefHat className="size-3" /> : null}
-                    {BATCH_STATUS[b.status].label}
-                  </Badge>
+                  {isBatchCancelled(b) ? (
+                    <Badge tone="danger" dot>
+                      Cancelada
+                    </Badge>
+                  ) : (
+                    <Badge tone={BATCH_STATUS[b.status].tone} dot>
+                      {b.status === "pendiente" ? <ChefHat className="size-3" /> : null}
+                      {BATCH_STATUS[b.status].label}
+                    </Badge>
+                  )}
                 </div>
               </div>
               <ul className="divide-y divide-ink-100 px-5">
                 {b.items.map((i) => (
-                  <li key={i.id} className={cn("flex items-center gap-3 py-2.5", i.status === "cancelado" && "opacity-50")}>
+                  <li key={i.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 py-3 sm:flex-nowrap", i.status === "cancelado" && "opacity-50")}>
                     <span className="w-8 text-sm font-bold text-ink-700 tabular-nums">{i.qty}×</span>
-                    <div className="min-w-0 flex-1">
-                      <p className={cn("truncate text-sm font-medium text-ink-900", i.status === "cancelado" && "line-through")}>{i.productName}</p>
-                      {i.notes && <p className="truncate text-xs text-brand-700 italic">“{i.notes}”</p>}
+                    <div className="min-w-0 flex-1 basis-32">
+                      <p className={cn("text-sm font-medium break-words text-ink-900", i.status === "cancelado" && "line-through")}>{i.productName}</p>
+                      {i.notes && <p className="text-xs break-words text-brand-700 italic">“{i.notes}”</p>}
                     </div>
                     {i.status === "cancelado" ? <Badge tone="danger">Cancelado</Badge> : <span className="text-sm tabular-nums">{fmtMoney(i.qty * i.unitPrice)}</span>}
-                    {canOperate && b.status === "pendiente" && i.status === "activo" && (
+                    {canOperate && b.status === "pendiente" && i.status === "activo" && i.prepared && <Badge tone="success">Listo en cocina</Badge>}
+                    {canOperate && b.status === "pendiente" && i.status === "activo" && !i.prepared && (
                       <div className="flex">
                         <IconButton label="Modificar" onClick={() => setEditing({ item: i, batch: b })}>
                           <Pencil className="size-4" />
@@ -325,6 +352,12 @@ export default function OrderPage() {
               <p className="mt-3 flex justify-between border-t border-ink-100 pt-3 font-semibold text-ink-900">
                 <span>A pagar</span>
                 <span className="tabular-nums">{fmtMoney(Math.max(0, total - deposit))}</span>
+              </p>
+            )}
+            {deposit > total && total > 0 && (
+              <p className="mt-2 flex justify-between rounded-lg bg-sky-50 px-2 py-1.5 text-sm font-semibold text-sky-900">
+                <span>Excedente de seña a devolver</span>
+                <span className="tabular-nums">{fmtMoney(deposit - total)}</span>
               </p>
             )}
             {data.reservation && (
