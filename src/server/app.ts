@@ -21,7 +21,16 @@ async function createStore(): Promise<DataStore> {
     return store;
   }
 
-  const fallback = new SqliteStore(sqliteFile);
+  // En Vercel (y en cualquier disco de sólo lectura) no puede crearse la copia SQLite: se usa PostgreSQL directo.
+  if (url && process.env.VERCEL) return createPgOnly(url);
+  let fallback: SqliteStore;
+  try {
+    fallback = new SqliteStore(sqliteFile);
+  } catch (e) {
+    if (!url) throw e;
+    console.error("[La Barra] No se pudo crear la copia SQLite local; se usa sólo PostgreSQL.", e);
+    return createPgOnly(url);
+  }
   if ((await fallback.getMeta("postgres-fallback-pending")) === "1") {
     console.warn("[La Barra] La copia contiene cambios hechos sin PostgreSQL; se conserva SQLite para evitar sobrescribirlos. Resuelva los cambios antes de volver a sincronizar.");
     return new FailoverStore(undefined, fallback);
@@ -51,6 +60,17 @@ async function createStore(): Promise<DataStore> {
       throw new AppError("PostgreSQL no responde y todavía no hay una copia SQLite de respaldo. Inicie el servidor una vez con PostgreSQL disponible.", 503);
     }
     throw new AppError("No se pudo iniciar PostgreSQL y no hay una copia SQLite de respaldo. Verifique la conexión y el esquema.", 503);
+  }
+}
+
+/** Sólo PostgreSQL, sin copia de respaldo. */
+async function createPgOnly(url: string): Promise<DataStore> {
+  try {
+    return await createPgStore(url);
+  } catch (e) {
+    if (e instanceof AppError) throw e;
+    console.error("[La Barra] Error al inicializar PostgreSQL; revise DATABASE_URL y el esquema de la base.", e);
+    throw new AppError("No se pudo inicializar PostgreSQL. Verifique DATABASE_URL y la conexión configurada en el servidor.", 503);
   }
 }
 
